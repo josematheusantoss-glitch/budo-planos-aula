@@ -15,3 +15,40 @@
   .brand div,#saveButton{display:none}
   .brand img{width:90px;height:47px;object-fit:contain}
 }
+/* Aula em montagem e registros. */
+.main{padding-bottom:160px}
+.view-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:#eceae8;border-radius:10px}
+.view-tab{border:0;border-radius:7px;background:transparent;padding:10px 5px;font-size:11px;font-weight:800;color:#777;white-space:nowrap}
+.view-tab.active{background:#fff;color:#b51e26;box-shadow:0 2px 6px #0001}
+.view-tab span{font-size:10px;background:#e8e6e4;border-radius:10px;padding:2px 5px;margin-left:2px}
+.empty-list{font-size:12px;color:#888;line-height:1.5;padding:10px}
+.activity-text{min-height:112px!important;line-height:1.5}
+.stage-extras{display:flex;gap:14px;margin-top:8px}
+.step-over{border-color:#c8333c;box-shadow:0 0 0 1px #c8333c22}
+.step-over .step-number{background:#a20e17}
+.final-review{margin-top:28px;padding-top:2px}
+.final-total{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-radius:10px;padding:16px;background:#f4f8f5;color:#21734c}
+.final-total.needs-adjustment{background:#fff6f5;color:#a8232a}
+.final-total span{font-size:12px;font-weight:700}
+.final-total strong{font-size:23px;letter-spacing:-.04em;margin-left:auto}
+.final-total em{font-style:normal;font-size:11px;font-weight:800;text-transform:uppercase}
+.overrun-list,.validation-issue{font-size:12px;color:#a8232a;line-height:1.5;margin:12px 0}
+.final-hint{font-size:11px;color:#777;line-height:1.5;margin:16px 0}
+.register-button{width:100%;min-height:48px;font-size:14px}
+.time-dock{position:fixed;right:22px;bottom:18px;width:328px;background:#18181b;color:white;padding:15px 17px;border-radius:14px;box-shadow:0 12px 40px #0004;z-index:15}
+.time-dock[hidden]{display:none}
+.dock-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.dock-top strong{font-size:15px}.dock-top span{font-size:11px;color:#d4d4d4}
+.dock-track{height:8px;border-radius:5px;background:#48484c;margin:10px 0 7px;overflow:hidden}
+.dock-fill{height:100%;background:#b51e26;border-radius:5px;transition:width .2s}
+.dock-fill.over{background:#ef575f}
+.time-dock small{font-size:10px;color:#c8c8cc;line-height:1.35;display:block}
+.record-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin:0 0 26px}
+.record-field{display:grid;gap:5px;min-width:0}.record-field small{color:#777;text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:.1em}.record-field strong{font-size:13px;overflow-wrap:anywhere}
+.record-step-title{flex:1;font-size:14px}.record-activity{font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.record-sub{font-size:11px;line-height:1.45;color:#666;background:#f9f8f7;border-radius:7px;padding:8px 10px;margin-top:8px}
+.recorded-at{color:#888;font-size:11px;margin:25px 0 0}
+.empty-state{background:#fff;border:1px solid #e7e5e3;border-radius:14px;padding:40px;text-align:center}.empty-state h2{margin:0 0 6px}.empty-state p{font-size:13px;color:#777;margin-bottom:20px}
+.fight-note.bad{color:#a8232a;font-weight:700}
+@media(max-width:700px){.main{padding-bottom:180px}.view-tabs{margin-top:2px}.time-dock{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));width:auto;border-radius:12px;padding:12px 14px}.dock-top strong{font-size:13px}.record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.final-total strong{margin-left:0}.stage-extras{flex-wrap:wrap}.activity-text{min-height:100px!important}}
+@media print{.main{padding:0}.time-dock,.view-tabs,.stage-extras,.final-hint,.register-button,.overrun-list,.validation-issue{display:none!important}.activity-text{display:none!important}.activity-print{display:block!important;white-space:pre-wrap;font-size:9pt;line-height:1.35}.final-review{margin-top:5mm}.final-total{padding:2mm 3mm;border:1px solid #ddd;background:#fff!important;color:#111!important}.record-grid{grid-template-columns:repeat(3,1fr);gap:3mm;margin-bottom:5mm}.record-field small{font-size:7pt}.record-field strong{font-size:9pt}.record-activity{font-size:9pt}.record-sub{font-size:8pt;padding:1mm}.recorded-at{font-size:7pt}}
