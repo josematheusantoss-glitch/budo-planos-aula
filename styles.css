@@ -52,3 +52,22 @@
 .fight-note.bad{color:#a8232a;font-weight:700}
 @media(max-width:700px){.main{padding-bottom:180px}.view-tabs{margin-top:2px}.time-dock{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));width:auto;border-radius:12px;padding:12px 14px}.dock-top strong{font-size:13px}.record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.final-total strong{margin-left:0}.stage-extras{flex-wrap:wrap}.activity-text{min-height:100px!important}}
 @media print{.main{padding:0}.time-dock,.view-tabs,.stage-extras,.final-hint,.register-button,.overrun-list,.validation-issue{display:none!important}.activity-text{display:none!important}.activity-print{display:block!important;white-space:pre-wrap;font-size:9pt;line-height:1.35}.final-review{margin-top:5mm}.final-total{padding:2mm 3mm;border:1px solid #ddd;background:#fff!important;color:#111!important}.record-grid{grid-template-columns:repeat(3,1fr);gap:3mm;margin-bottom:5mm}.record-field small{font-size:7pt}.record-field strong{font-size:9pt}.record-activity{font-size:9pt}.record-sub{font-size:8pt;padding:1mm}.recorded-at{font-size:7pt}}
+/* Arquivo mensal de aulas realizadas. */
+.month-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;margin-bottom:16px;scrollbar-width:thin}
+.month-tab{flex:none;display:inline-flex;align-items:center;gap:9px;border:1px solid #dedbd8;background:#fff;color:#4b4a4e;border-radius:9px;padding:11px 13px;font-size:12px;font-weight:800;white-space:nowrap}
+.month-tab.active{border-color:#b51e26;background:#b51e26;color:white}
+.month-tab span{display:grid;place-items:center;min-width:20px;height:20px;border-radius:20px;background:#f0eeec;color:#5e5a5c;font-size:10px;padding:0 5px}
+.month-tab.active span{background:#ffffff2b;color:white}
+.month-section{margin:0 0 24px}
+.month-heading{display:flex;justify-content:space-between;align-items:end;gap:12px;margin:0 0 12px}
+.month-heading h2{font-size:24px;letter-spacing:-.035em;margin:4px 0 0}
+.month-heading>span{font-size:11px;color:#777;font-weight:700;white-space:nowrap;padding-bottom:4px}
+.month-records{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.month-record{min-width:0;text-align:left;display:grid;gap:5px;border:1px solid #e1dfdc;background:#fff;border-radius:11px;padding:15px 16px;box-shadow:0 3px 12px #16161608}
+.month-record.active{border-color:#b51e26;box-shadow:0 0 0 1px #b51e2622,0 4px 15px #1616160b}
+.month-instructor{font-size:17px;color:#17171b;letter-spacing:-.02em;overflow-wrap:anywhere}
+.month-date{font-size:11px;font-weight:800;color:#b51e26}
+.month-theme{font-size:12px;color:#646369;line-height:1.35;overflow-wrap:anywhere}
+.past-sheet{margin-top:10px}
+@media(max-width:700px){.month-tabs{margin-bottom:13px}.month-tab{font-size:11px;padding:10px 11px}.month-heading h2{font-size:21px}.month-records{grid-template-columns:1fr}.month-instructor{font-size:16px}}
+@media print{.month-tabs,.month-section{display:none!important}.past-sheet{margin-top:0}}
