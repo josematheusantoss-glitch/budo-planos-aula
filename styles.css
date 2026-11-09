@@ -91,3 +91,8 @@
   .fight-summary{font-size:8pt}
   .fight-simple .fight-fields{grid-template-columns:repeat(2,1fr)}
 }
+/* Anotações visíveis por inteiro durante a montagem. */
+.activity-text,#notes{box-sizing:border-box;overflow:hidden;resize:none}
+.activity-text{min-height:112px!important}
+#notes{min-height:100px}
+@media(max-width:700px){.activity-text{min-height:100px!important}#notes{min-height:100px}}
