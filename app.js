@@ -24,7 +24,7 @@ function normalizePlan(plan) {
   return {
     id:plan.id||uid(), className:plan.className||plan.theme||'', instructor:plan.instructor||'', date:plan.date||localDate(),
     startTime:plan.startTime||'', group:plan.group||'', theme:plan.theme||'', notes:plan.notes||'',
-    updatedAt:plan.updatedAt||Date.now(), recordedAt:plan.recordedAt||null,
+    updatedAt:plan.updatedAt||Date.now(), recordedAt:plan.recordedAt||null, lastTimeEdit:plan.lastTimeEdit||null,
     steps:(plan.steps||[]).map(s=>({id:s.id||uid(),title:s.title||'',minutes:Math.max(0,Math.floor(Number(s.minutes)||0)),
       activity:typeof s.activity==='string'?s.activity:(s.items||[]).map(x=>x.text).filter(Boolean).join('\n'),
       ...(Array.isArray(s.subdivisions)?{subdivisions:s.subdivisions.map(x=>({id:x.id||uid(),name:x.name||'',minutes:Math.max(0,Math.floor(Number(x.minutes)||0))}))}:{}),
@@ -92,7 +92,8 @@ function renderDock() {
   dock.hidden=false;
   const plan=draft(),total=sum(plan),remaining=TARGET-total,over=overflowStages(plan);
   const width=Math.min(100,Math.max(0,total/TARGET*100));
-  dock.innerHTML=`<div class="dock-top"><strong>${remaining>0?`${remaining} min disponíveis`:remaining===0?'60 min fechados':`${-remaining} min acima`}</strong><span>${total} / ${TARGET} min</span></div><div class="dock-track"><div class="dock-fill ${remaining<0?'over':''}" style="width:${width}%"></div></div><small>${remaining<0?`Excesso a partir de: ${escapeHtml(over[0]?.title||'etapa')}`:remaining===0?'Pronto para registrar':'Distribua o tempo restante entre as etapas'}</small>`;
+  const last=plan.lastTimeEdit;
+  dock.innerHTML=`<div class="dock-top"><strong>${remaining>0?`${remaining} min disponíveis`:remaining===0?'60 min fechados':`${-remaining} min acima`}</strong><span>${total} / ${TARGET} min</span></div><div class="dock-track"><div class="dock-fill ${remaining<0?'over':''}" style="width:${width}%"></div></div><small>${remaining<0?(last&&last.to>last.from?`Último aumento: ${escapeHtml(last.title)} (+${last.to-last.from} min)`:`Excesso a partir de: ${escapeHtml(over[0]?.title||'etapa')}`):remaining===0?'Pronto para registrar':'Distribua o tempo restante entre as etapas'}</small>`;
 }
 function render() {
   renderList();renderDock();
@@ -110,7 +111,9 @@ function render() {
 }
 function renderDraft(plan) {
   const total=sum(plan),remaining=TARGET-total,over=overflowStages(plan);
-  const overText=over.length?`<p class="overrun-list">O tempo passa de 60 min em: ${over.map(s=>`<strong>${escapeHtml(s.title)} (+${s.minutes} min)</strong>`).join(', ')}. Reduza essas etapas ou redistribua os minutos.</p>`:'';
+  const last=plan.lastTimeEdit;
+  const lastChange=last&&last.to>last.from?`Último aumento: <strong>${escapeHtml(last.title)} (+${last.to-last.from} min)</strong>. `:'';
+  const overText=over.length?`<p class="overrun-list">${lastChange}A soma ultrapassa 60 min a partir de ${over.map(s=>`<strong>${escapeHtml(s.title)} (+${s.minutes} min)</strong>`).join(', ')}. Reajuste os tempos antes de registrar.</p>`:'';
   const issues=[];
   for(const s of plan.steps){if(s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes)issues.push(`Subdivisões de ${s.title} não somam ${s.minutes} min.`);if(s.fight&&fightUsed(s)>s.minutes)issues.push(`Rounds de ${s.title} excedem o tempo da etapa.`);}
   return `<article class="sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · PLANEJAMENTO<strong>PLANO DE AULA</strong></div></div><div class="sheet-body">
@@ -145,7 +148,7 @@ function record(label,value){return `<div class="record-field"><small>${label}</
 function formatDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'';const [y,m,d]=value.split('-');return `${d}/${m}/${y}`;}
 function adjustParts(parts,diff) {if(!diff)return true;if(diff>0){parts[parts.length-1].minutes+=diff;return true;}let left=-diff;for(const part of [...parts].reverse()){const take=Math.min(part.minutes,left);part.minutes-=take;left-=take;if(!left)break;}return left===0;}
 function rebalanceSubdivisions(s){if(!s.subdivisions?.length)return;adjustParts(s.subdivisions,s.minutes-s.subdivisions.reduce((n,x)=>n+x.minutes,0));}
-function changeStepTime(id,value){const n=Number(value);if(!Number.isInteger(n)||n<0){toast('Informe um tempo inteiro de 0 minuto ou mais.');render();return;}const s=draft().steps.find(x=>x.id===id);s.minutes=n;rebalanceSubdivisions(s);persist();render();}
+function changeStepTime(id,value){const n=Number(value);if(!Number.isInteger(n)||n<0){toast('Informe um tempo inteiro de 0 minuto ou mais.');render();return;}const p=draft(),s=p.steps.find(x=>x.id===id);p.lastTimeEdit={id,title:s.title,from:s.minutes,to:n};s.minutes=n;rebalanceSubdivisions(s);persist();render();}
 function changeSubTime(sid,pid,value){const n=Number(value),s=draft().steps.find(x=>x.id===sid);if(!Number.isInteger(n)||n<0||n>s.minutes){toast('A subdivisão deve caber no tempo da etapa.');render();return;}const part=s.subdivisions.find(x=>x.id===pid),others=s.subdivisions.filter(x=>x.id!==pid).map(x=>({...x}));if(!others.length&&n!==s.minutes){toast('A única subdivisão deve ter o tempo completo da etapa.');render();return;}if(others.length&&!adjustParts(others,part.minutes-n)){toast('As demais subdivisões não têm tempo suficiente.');render();return;}part.minutes=n;others.forEach(x=>s.subdivisions.find(y=>y.id===x.id).minutes=x.minutes);persist();render();}
 function move(arr,index,direction){const next=index+direction;if(next<0||next>=arr.length)return;[arr[index],arr[next]]=[arr[next],arr[index]];persist();render();}
 function handleAction(action,id){if(action==='show-drafts'){setView('draft');return;}const p=draft();let s=p.steps.find(x=>x.id===id);
