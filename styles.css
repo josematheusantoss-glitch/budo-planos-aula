@@ -97,3 +97,12 @@
 #notes{min-height:100px}
 @media(max-width:700px){.activity-text{min-height:100px!important}#notes{min-height:100px}}
 .field textarea.activity-text{resize:none}
+/* Link de referência que acompanha o plano e o registro. */
+.meta-grid{margin-bottom:18px}
+.video-reference{background:#fbfaf9;border:1px solid #e9e6e3;border-radius:10px;padding:13px 15px;margin:0 0 28px;min-width:0}
+.video-row{display:flex;align-items:center;gap:9px;min-width:0}
+.video-row input{min-width:0;flex:1}
+.video-open{display:inline-flex;align-items:center;justify-content:center;min-height:39px;padding:8px 12px;border-radius:8px;background:#b51e26;color:#fff;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}
+.video-record{display:flex;align-items:center;gap:14px}
+@media(max-width:700px){.meta-grid{margin-bottom:14px}.video-reference{padding:11px;margin-bottom:21px}.video-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.video-open{padding:8px 9px;font-size:11px}}
+@media print{.video-reference{padding:1mm 0;border:0;background:none;margin:0 0 4mm}.video-reference input,.video-open{display:none!important}.video-print{display:block!important;font-size:8pt;overflow-wrap:anywhere;margin-top:1mm}.video-record{display:block}}
