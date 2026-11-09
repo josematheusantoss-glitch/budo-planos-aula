@@ -71,3 +71,23 @@
 .past-sheet{margin-top:10px}
 @media(max-width:700px){.month-tabs{margin-bottom:13px}.month-tab{font-size:11px;padding:10px 11px}.month-heading h2{font-size:21px}.month-records{grid-template-columns:1fr}.month-instructor{font-size:16px}}
 @media print{.month-tabs,.month-section{display:none!important}.past-sheet{margin-top:0}}
+/* Compact stage headers and the simplified Lutas stage. */
+.step-title-input{box-sizing:border-box;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.25;min-height:38px;font-family:inherit}
+.step-time input[readonly]{background:#f1efed;color:#242226}
+.fight-simple{display:grid;gap:12px}
+.fight-simple .fight-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.fight-simple .field{margin:0}
+.fight-summary{margin:0;color:#b51e26;font-size:12px;font-weight:800}
+@media(max-width:700px){
+  .step-head{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px 10px;align-items:center;padding:11px 12px}
+  .step-number{grid-column:1;grid-row:1}
+  .step-title-input{grid-column:2 / 4;grid-row:1;width:100%;min-width:0;max-width:100%;margin:0;padding:5px 2px;font-size:15px}
+  .step-time{grid-column:2;grid-row:2;margin:0;justify-self:start}
+  .step-controls{grid-column:3;grid-row:2;margin:0}
+  .fight-simple .fight-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media print{
+  .step-title-input{height:auto!important;min-height:0;white-space:pre-wrap;overflow:visible;resize:none}
+  .fight-summary{font-size:8pt}
+  .fight-simple .fight-fields{grid-template-columns:repeat(2,1fr)}
+}
