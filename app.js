@@ -32,6 +32,25 @@ function normalizePlan(plan) {
     }))
   };
 }
+function monthKey(plan) {
+  const date=String(plan?.date||'');
+  return /^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(date)?date.slice(0,7):'sem-data';
+}
+function monthLabel(key) {
+  if(key==='sem-data')return 'Sem data';
+  const [year,month]=key.split('-').map(Number);
+  const label=new Date(year,month-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  return label.charAt(0).toLocaleUpperCase('pt-BR')+label.slice(1);
+}
+function months() {return [...new Set(store.past.map(monthKey))].sort((a,b)=>a==='sem-data'?1:b==='sem-data'?-1:a.localeCompare(b));}
+function monthRecords(key) {return store.past.filter(p=>monthKey(p)===key).sort((a,b)=>`${b.date||''}T${b.startTime||''}`.localeCompare(`${a.date||''}T${a.startTime||''}`));}
+function syncPastSelection() {
+  const available=months();
+  if(!available.length){store.pastMonth=null;store.pastId=null;return;}
+  if(!available.includes(store.pastMonth))store.pastMonth=store.past.find(p=>p.id===store.pastId)?monthKey(store.past.find(p=>p.id===store.pastId)):available[available.length-1];
+  const inMonth=monthRecords(store.pastMonth);
+  if(!inMonth.some(p=>p.id===store.pastId))store.pastId=inMonth[0]?.id||null;
+}
 function readStore() {
   try {
     const saved=JSON.parse(localStorage.getItem(KEY));
@@ -48,16 +67,17 @@ function readStore() {
     const old=JSON.parse(localStorage.getItem(OLD_KEY));
     if(Array.isArray(old?.plans) && old.plans.length) {
       const drafts=old.plans.map(normalizePlan);
-      return {drafts,past:[],activeId:drafts.some(p=>p.id===old.activeId)?old.activeId:drafts[0].id,pastId:null,view:'draft'};
+      return {drafts,past:[],activeId:drafts.some(p=>p.id===old.activeId)?old.activeId:drafts[0].id,pastId:null,pastMonth:null,view:'draft'};
     }
   } catch {}
   const first=template();
-  return {drafts:[first],past:[],activeId:first.id,pastId:null,view:'draft'};
+  return {drafts:[first],past:[],activeId:first.id,pastId:null,pastMonth:null,view:'draft'};
 }
 let store=readStore();
+syncPastSelection();
 let toastTimer;
 const draft=()=>store.drafts.find(p=>p.id===store.activeId)||store.drafts[0];
-const past=()=>store.past.find(p=>p.id===store.pastId)||store.past[0];
+const past=()=>monthRecords(store.pastMonth).find(p=>p.id===store.pastId)||monthRecords(store.pastMonth)[0];
 const current=()=>store.view==='past'?past():draft();
 const sum=p=>p.steps.reduce((n,s)=>n+s.minutes,0);
 const fightUsed=s=>s.fight?s.fight.rounds*s.fight.roundMinutes+Math.max(0,s.fight.rounds-1)*s.fight.intervalMinutes:0;
@@ -76,18 +96,21 @@ function toast(message) {
   const node=$('#toast');node.textContent=message;node.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove('show'),4300);
 }
-function setView(view) {store.view=view;persist();render();closeSidebar();}
+function setView(view) {store.view=view;if(view==='past')syncPastSelection();persist();render();closeSidebar();}
 function renderList() {
   $('#draftTab').classList.toggle('active',store.view==='draft');
   $('#pastTab').classList.toggle('active',store.view==='past');
   $('#draftTab').setAttribute('aria-selected',String(store.view==='draft'));
   $('#pastTab').setAttribute('aria-selected',String(store.view==='past'));
   $('#pastCount').textContent=store.past.length;
-  const list=store.view==='past'?store.past:store.drafts;
+  const list=store.view==='past'?monthRecords(store.pastMonth):store.drafts;
   const activeId=store.view==='past'?store.pastId:store.activeId;
-  $('#planList').innerHTML=list.length?list.slice().sort((a,b)=>(b.recordedAt||b.updatedAt)-(a.recordedAt||a.updatedAt)).map(p=>
-    `<button type="button" class="plan-link ${p.id===activeId?'active':''}" data-plan="${p.id}"><strong>${escapeHtml(p.className||p.theme||'Aula sem nome')}</strong><small>${escapeHtml(p.date||'Sem data')} · ${escapeHtml(p.startTime||'Sem horário')} · ${escapeHtml(p.instructor||'Sem instrutor')}</small></button>`).join('')
-    :'<p class="empty-list">Nenhuma aula registrada ainda.</p>';
+  const ordered=store.view==='past'?list:list.slice().sort((a,b)=>(b.recordedAt||b.updatedAt)-(a.recordedAt||a.updatedAt));
+  $('#planList').innerHTML=ordered.length?ordered.map(p=>
+    store.view==='past'
+      ?`<button type="button" class="plan-link ${p.id===activeId?'active':''}" data-plan="${p.id}"><strong>${escapeHtml(p.instructor||'Sem instrutor')}</strong><small>${escapeHtml(formatDate(p.date))} · ${escapeHtml(p.theme||'Sem tema')}</small></button>`
+      :`<button type="button" class="plan-link ${p.id===activeId?'active':''}" data-plan="${p.id}"><strong>${escapeHtml(p.className||p.theme||'Aula sem nome')}</strong><small>${escapeHtml(formatDate(p.date)||'Sem data')} · ${escapeHtml(p.startTime||'Sem horário')} · ${escapeHtml(p.instructor||'Sem instrutor')}</small></button>`).join('')
+    :`<p class="empty-list">${store.view==='past'&&store.past.length?'Nenhuma aula neste mês.':'Nenhuma aula registrada ainda.'}</p>`;
 }
 function renderDock() {
   const dock=$('#timeDock');
@@ -143,9 +166,16 @@ function renderStep(s,i,count,over) {
   const fight=f?`<div class="fight-grid"><h4>Configuração das lutas</h4><div class="fight-fields"><label>Rounds<input class="fight-input" type="number" min="1" step="1" data-fight="${s.id}:rounds" value="${f.rounds}"></label><label>Por round (min)<input class="fight-input" type="number" min="1" step="1" data-fight="${s.id}:roundMinutes" value="${f.roundMinutes}"></label><label>Intervalo (min)<input class="fight-input" type="number" min="0" step="1" data-fight="${s.id}:intervalMinutes" value="${f.intervalMinutes}"></label><label>Organização (min)<input class="fight-input" value="${Math.max(0,s.minutes-used)}" readonly></label></div><div class="field fight-org"><label>Organização das duplas</label><input data-fight-org="${s.id}" value="${escapeHtml(f.organization)}" placeholder="Ex.: duplas por peso"></div><p class="fight-note ${used>s.minutes?'bad':''}">${f.rounds} rounds × ${f.roundMinutes} min + ${Math.max(0,f.rounds-1)} intervalos × ${f.intervalMinutes} min = ${used} min. ${used>s.minutes?'Aumente o tempo da etapa.':`${s.minutes-used} min para organização.`}</p></div>`:'';
   return `<section class="step-card ${over.some(x=>x.id===s.id)?'step-over':''}" data-step="${s.id}"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><input class="step-title-input" aria-label="Título da etapa ${i+1}" data-step-title="${s.id}" value="${escapeHtml(s.title)}"><label class="step-time"><input type="number" min="0" step="1" aria-label="Tempo da etapa ${i+1}" data-step-time="${s.id}" value="${s.minutes}"> min</label><div class="step-controls no-print"><button class="icon-button" type="button" data-action="up-step" data-id="${s.id}" aria-label="Subir etapa" ${i===0?'disabled':''}>↑</button><button class="icon-button" type="button" data-action="down-step" data-id="${s.id}" aria-label="Descer etapa" ${i===count-1?'disabled':''}>↓</button><button class="icon-button" type="button" data-action="remove-step" data-id="${s.id}" aria-label="Remover etapa">×</button></div></div><div class="step-body"><div class="field"><label for="activity-${s.id}">Atividades / conteúdo da etapa</label><textarea class="activity-text" id="activity-${s.id}" data-activity="${s.id}" placeholder="Escreva livremente o que será feito nesta etapa">${escapeHtml(s.activity)}</textarea><div class="activity-print print-only">${escapeHtml(s.activity)}</div></div>${subdiv}${fight}<div class="stage-extras no-print">${!s.subdivisions?.length?`<button class="small-button" type="button" data-action="add-sub" data-id="${s.id}">＋ Dividir tempo</button>`:''}${!s.fight?`<button class="small-button" type="button" data-action="add-fight" data-id="${s.id}">＋ Configurar lutas</button>`:''}</div></div></section>`;
 }
+function renderMonthNavigation() {
+  return `<div class="month-tabs no-print" role="tablist" aria-label="Filtrar aulas por mês">${months().map(key=>`<button type="button" role="tab" aria-selected="${key===store.pastMonth}" class="month-tab ${key===store.pastMonth?'active':''}" data-month="${key}">${escapeHtml(monthLabel(key))}<span>${monthRecords(key).length}</span></button>`).join('')}</div>`;
+}
+function renderMonthCards() {
+  const records=monthRecords(store.pastMonth);
+  return `<section class="month-section no-print"><div class="month-heading"><div><span class="eyebrow">REGISTROS DO MÊS</span><h2>${escapeHtml(monthLabel(store.pastMonth))}</h2></div><span>${records.length} ${records.length===1?'aula':'aulas'}</span></div><div class="month-records">${records.map(p=>`<button type="button" class="month-record ${p.id===store.pastId?'active':''}" data-past-plan="${p.id}"><strong class="month-instructor">${escapeHtml(p.instructor||'Sem instrutor')}</strong><span class="month-date">${escapeHtml(formatDate(p.date))}${p.startTime?` · ${escapeHtml(p.startTime)}`:''}</span><span class="month-theme">${escapeHtml(p.theme||'Sem tema')}</span></button>`).join('')}</div></section>`;
+}
 function renderPast(plan) {
   if(!plan)return `<div class="empty-state"><h2>Nenhuma aula registrada</h2><p>Quando salvar uma aula de 60 minutos, ela aparecerá aqui com todos os detalhes.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>`;
-  return `<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div><div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} rounds de ${s.fight.roundMinutes} min · intervalo ${s.fight.intervalMinutes} min · ${escapeHtml(s.fight.organization)}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
+  return `${renderMonthNavigation()}${renderMonthCards()}<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div><div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} rounds de ${s.fight.roundMinutes} min · intervalo ${s.fight.intervalMinutes} min · ${escapeHtml(s.fight.organization)}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
 }
 function record(label,value){return `<div class="record-field"><small>${label}</small><strong>${escapeHtml(value||'—')}</strong></div>`;}
 function formatDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'';const [y,m,d]=value.split('-');return `${d}/${m}/${y}`;}
@@ -163,19 +193,19 @@ function handleAction(action,id){if(action==='show-drafts'){setView('draft');ret
   else if(action==='add-fight')s.fight={rounds:1,roundMinutes:1,intervalMinutes:0,organization:''};
   persist();render();
 }
-function registerClass(){const p=draft();const required=[['className','nome da aula'],['instructor','instrutor/monitor'],['date','data'],['startTime','horário'],['group','turma'],['theme','tema']];const missing=required.find(([key])=>!String(p[key]||'').trim());if(missing){toast(`Preencha ${missing[1]} antes de registrar.`);$(`#${missing[0]}`)?.focus();return;}if(sum(p)!==TARGET){const over=overflowStages(p);toast(sum(p)>TARGET?`Excedeu ${sum(p)-TARGET} min. Confira ${over[0]?.title||'as etapas'}.`:`Faltam ${TARGET-sum(p)} min para completar a aula.`);$('#registerClass').scrollIntoView({behavior:'smooth',block:'center'});return;}const invalid=p.steps.find(s=>s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes || s.fight&&fightUsed(s)>s.minutes);if(invalid){toast(`Revise o tempo interno de ${invalid.title}.`);return;}const completed=structuredClone(p);completed.recordedAt=Date.now();store.past.unshift(completed);store.pastId=completed.id;store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;store.view='past';persist();render();window.scrollTo({top:0,behavior:'smooth'});toast('Aula registrada em Aulas passadas.');}
-$('#editor').addEventListener('click',e=>{const action=e.target.closest('[data-action]');if(action)handleAction(action.dataset.action,action.dataset.id);if(e.target.closest('#registerClass'))registerClass();});
+function registerClass(){const p=draft();const required=[['className','nome da aula'],['instructor','instrutor/monitor'],['date','data'],['startTime','horário'],['group','turma'],['theme','tema']];const missing=required.find(([key])=>!String(p[key]||'').trim());if(missing){toast(`Preencha ${missing[1]} antes de registrar.`);$(`#${missing[0]}`)?.focus();return;}if(sum(p)!==TARGET){const over=overflowStages(p);toast(sum(p)>TARGET?`Excedeu ${sum(p)-TARGET} min. Confira ${over[0]?.title||'as etapas'}.`:`Faltam ${TARGET-sum(p)} min para completar a aula.`);$('#registerClass').scrollIntoView({behavior:'smooth',block:'center'});return;}const invalid=p.steps.find(s=>s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes || s.fight&&fightUsed(s)>s.minutes);if(invalid){toast(`Revise o tempo interno de ${invalid.title}.`);return;}const completed=structuredClone(p);completed.recordedAt=Date.now();store.past.unshift(completed);store.pastId=completed.id;store.pastMonth=monthKey(completed);store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;store.view='past';persist();render();window.scrollTo({top:0,behavior:'smooth'});toast('Aula registrada em Aulas passadas.');}
+$('#editor').addEventListener('click',e=>{const month=e.target.closest('[data-month]');if(month){store.pastMonth=month.dataset.month;syncPastSelection();persist();render();return;}const record=e.target.closest('[data-past-plan]');if(record){store.pastId=record.dataset.pastPlan;persist();render();return;}const action=e.target.closest('[data-action]');if(action)handleAction(action.dataset.action,action.dataset.id);if(e.target.closest('#registerClass'))registerClass();});
 $('#editor').addEventListener('input',e=>{if(store.view!=='draft')return;const t=e.target,p=draft();if(t.dataset.field!==undefined){p[t.dataset.field]=t.value;if(t.dataset.field==='className')$('#pageTitle').textContent=t.value||'Nova aula';if(t.dataset.field==='notes')$('#editor .notes-print').textContent=t.value;persist();}else if(t.dataset.stepTitle){p.steps.find(s=>s.id===t.dataset.stepTitle).title=t.value;persist();}else if(t.dataset.activity){p.steps.find(s=>s.id===t.dataset.activity).activity=t.value;t.nextElementSibling.textContent=t.value;persist();}else if(t.dataset.subName){const [sid,pid]=t.dataset.subName.split(':');p.steps.find(s=>s.id===sid).subdivisions.find(x=>x.id===pid).name=t.value;persist();}else if(t.dataset.fightOrg){p.steps.find(s=>s.id===t.dataset.fightOrg).fight.organization=t.value;persist();}});
 $('#editor').addEventListener('change',e=>{if(store.view!=='draft')return;const t=e.target;if(t.dataset.stepTime)changeStepTime(t.dataset.stepTime,t.value);else if(t.dataset.subTime){const [sid,pid]=t.dataset.subTime.split(':');changeSubTime(sid,pid,t.value);}else if(t.dataset.fight){const [sid,key]=t.dataset.fight.split(':'),s=draft().steps.find(x=>x.id===sid),n=Number(t.value);if(!Number.isInteger(n)||n<(key==='intervalMinutes'?0:1)){toast('Use um número inteiro válido.');render();return;}s.fight[key]=n;persist();render();}});
 $('#planList').addEventListener('click',e=>{const button=e.target.closest('[data-plan]');if(!button)return;if(store.view==='past')store.pastId=button.dataset.plan;else store.activeId=button.dataset.plan;persist();render();closeSidebar();});
 $('#draftTab').onclick=()=>setView('draft');$('#pastTab').onclick=()=>setView('past');
 $('#newPlan').onclick=()=>{const p=template(true);store.drafts.push(p);store.activeId=p.id;store.view='draft';persist();render();closeSidebar();};
 $('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist();render();toast('Cópia aberta para montagem.');};
-$('#deletePlan').onclick=()=>{const isPast=store.view==='past',p=current();if(!p||!confirm(`Excluir ${isPast?'este registro':'este rascunho'}?`))return;if(isPast){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=store.past[0]?.id||null;}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;}persist();render();toast(isPast?'Registro excluído.':'Rascunho excluído.');};
+$('#deletePlan').onclick=()=>{const isPast=store.view==='past',p=current();if(!p||!confirm(`Excluir ${isPast?'este registro':'este rascunho'}?`))return;if(isPast){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=null;syncPastSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;}persist();render();toast(isPast?'Registro excluído.':'Rascunho excluído.');};
 $('#printButton').onclick=()=>{if(!current())return;window.print();};
 $('#exportBackup').onclick=()=>{const blob=new Blob([JSON.stringify({format:'budo-plans',version:2,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado.');};
 $('#importBackup').onclick=()=>$('#backupFile').click();
-$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;store={drafts:drafts.map(normalizePlan),past:(data.past||[]).map(normalizePlan),view:'draft',activeId:null,pastId:null};if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;store.pastId=store.past[0]?.id||null;persist();render();toast('Backup importado.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
+$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;store={drafts:drafts.map(normalizePlan),past:(data.past||[]).map(normalizePlan),view:'draft',activeId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;syncPastSelection();persist();render();toast('Backup importado.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
 function closeSidebar(){$('#sidebar').classList.remove('open');$('#scrim').classList.remove('open');}
 $('#libraryToggle').onclick=()=>{$('#sidebar').classList.add('open');$('#scrim').classList.add('open');};$('#closeSidebar').onclick=closeSidebar;$('#scrim').onclick=closeSidebar;
 render();localStorage.setItem(KEY,JSON.stringify(store));
