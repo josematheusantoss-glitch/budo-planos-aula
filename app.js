@@ -40,6 +40,7 @@ function readStore() {
       if(!saved.drafts.length) saved.drafts=[template(true)];
       saved.view=saved.view==='past'?'past':'draft';
       saved.activeId=saved.drafts.some(p=>p.id===saved.activeId)?saved.activeId:saved.drafts[0].id;
+      saved.pastId=saved.past.some(p=>p.id===saved.pastId)?saved.pastId:(saved.past[0]?.id||null);
       return saved;
     }
   } catch {}
@@ -67,7 +68,7 @@ function overflowStages(plan) {
 function persist() {
   if(store.view==='draft') draft().updatedAt=Date.now();
   localStorage.setItem(KEY,JSON.stringify(store));
-  $('#saveStatus').textContent=store.view==='draft'?'✓ Rascunho salvo':'✓ Aula registrada';
+  $('#saveStatus').textContent=store.view==='draft'?'✓ Rascunho salvo':(past()?'✓ Aula registrada':'');
   renderList();
   renderDock();
 }
@@ -107,7 +108,7 @@ function render() {
   $('#duplicatePlan').textContent=isPast?'Usar como modelo':'Duplicar';
   $('#duplicatePlan').hidden=isPast&&!plan;
   $('#deletePlan').hidden=!plan;
-  $('#saveStatus').textContent=isPast?'✓ Aula registrada':'✓ Rascunho salvo';
+  $('#saveStatus').textContent=isPast?(plan?'✓ Aula registrada':''):'✓ Rascunho salvo';
   $('#printButton').hidden=!plan;
   $('#editor').innerHTML=isPast?renderPast(plan):renderDraft(plan);
 }
