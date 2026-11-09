@@ -11,3 +11,7 @@
   .print-box{display:inline-block!important;font-size:12pt;line-height:1;flex:none}
   .notes-print{display:block!important;font-size:9pt}
 }
+@media(max-width:700px){
+  .brand div,#saveButton{display:none}
+  .brand img{width:90px;height:47px;object-fit:contain}
+}
