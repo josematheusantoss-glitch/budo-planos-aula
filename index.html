@@ -13,21 +13,23 @@
 <body>
   <header class="topbar no-print">
     <div class="brand"><img src="logobudo.jpeg" alt="Budô"><div><strong>PLANO DE AULA</strong><span>JIU-JÍTSU · BUDÔ</span></div></div>
-    <div class="top-actions"><button id="libraryToggle" class="button ghost mobile-only" type="button">☰ Planos</button><button id="saveButton" class="button ghost" type="button">Salvar</button><button id="printButton" class="button primary" type="button">↗ Exportar PDF</button></div>
+    <div class="top-actions"><button id="libraryToggle" class="button ghost mobile-only" type="button">☰ Aulas</button><button id="printButton" class="button primary" type="button">↗ PDF</button></div>
   </header>
   <div class="app-shell">
-    <aside class="sidebar no-print" id="sidebar" aria-label="Planos salvos">
-      <div class="sidebar-head"><div><span class="eyebrow">BIBLIOTECA</span><h2>Meus planos</h2></div><button id="closeSidebar" class="icon-button mobile-only" aria-label="Fechar planos" type="button">×</button></div>
-      <button id="newPlan" class="button primary full" type="button">＋ Novo plano</button>
+    <aside class="sidebar no-print" id="sidebar" aria-label="Aulas">
+      <div class="sidebar-head"><div><span class="eyebrow">BUDÔ</span><h2>Minhas aulas</h2></div><button id="closeSidebar" class="icon-button mobile-only" aria-label="Fechar aulas" type="button">×</button></div>
+      <div class="view-tabs" role="tablist" aria-label="Tipo de aula"><button id="draftTab" class="view-tab active" type="button" role="tab">Montar aula</button><button id="pastTab" class="view-tab" type="button" role="tab">Aulas passadas <span id="pastCount">0</span></button></div>
+      <button id="newPlan" class="button primary full" type="button">＋ Nova aula</button>
       <div id="planList" class="plan-list"></div>
       <div class="sidebar-foot"><button id="exportBackup" class="button subtle full" type="button">↓ Exportar backup</button><button id="importBackup" class="button subtle full" type="button">↑ Importar backup</button><input id="backupFile" type="file" accept="application/json,.json" hidden><p>Salvo neste navegador. Exporte um backup para usar em outro aparelho.</p></div>
     </aside>
     <div id="scrim" class="scrim no-print"></div>
     <main class="main">
-      <div class="page-heading no-print"><div><span class="eyebrow">EDITOR DE AULAS</span><h1 id="pageTitle">Plano de aula</h1><p>Estruture, acompanhe e imprima sua aula.</p></div><div class="page-actions"><span id="saveStatus" class="save-status">Salvo</span><button id="duplicatePlan" class="button subtle" type="button">Duplicar</button><button id="deletePlan" class="button danger-text" type="button">Excluir</button></div></div>
+      <div class="page-heading no-print"><div><span id="pageEyebrow" class="eyebrow">MONTAR AULA</span><h1 id="pageTitle">Plano de aula</h1><p id="pageSubtitle">Preencha as etapas e registre a aula ao final.</p></div><div class="page-actions"><span id="saveStatus" class="save-status">Rascunho salvo</span><button id="duplicatePlan" class="button subtle" type="button">Duplicar</button><button id="deletePlan" class="button danger-text" type="button">Excluir</button></div></div>
       <div id="editor"></div>
     </main>
   </div>
+  <div id="timeDock" class="time-dock no-print" role="status" aria-live="polite"></div>
   <div id="toast" class="toast no-print" role="status" aria-live="polite"></div>
 </body>
 </html>
