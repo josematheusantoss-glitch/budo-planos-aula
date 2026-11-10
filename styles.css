@@ -52,25 +52,30 @@
 .fight-note.bad{color:#a8232a;font-weight:700}
 @media(max-width:700px){.main{padding-bottom:180px}.view-tabs{margin-top:2px}.time-dock{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));width:auto;border-radius:12px;padding:12px 14px}.dock-top strong{font-size:13px}.record-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.final-total strong{margin-left:0}.stage-extras{flex-wrap:wrap}.activity-text{min-height:100px!important}}
 @media print{.main{padding:0}.time-dock,.view-tabs,.stage-extras,.final-hint,.register-button,.overrun-list,.validation-issue{display:none!important}.activity-text{display:none!important}.activity-print{display:block!important;white-space:pre-wrap;font-size:9pt;line-height:1.35}.final-review{margin-top:5mm}.final-total{padding:2mm 3mm;border:1px solid #ddd;background:#fff!important;color:#111!important}.record-grid{grid-template-columns:repeat(3,1fr);gap:3mm;margin-bottom:5mm}.record-field small{font-size:7pt}.record-field strong{font-size:9pt}.record-activity{font-size:9pt}.record-sub{font-size:8pt;padding:1mm}.recorded-at{font-size:7pt}}
-/* Arquivo mensal de aulas realizadas. */
-.month-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;margin-bottom:16px;scrollbar-width:thin}
-.month-tab{flex:none;display:inline-flex;align-items:center;gap:9px;border:1px solid #dedbd8;background:#fff;color:#4b4a4e;border-radius:9px;padding:11px 13px;font-size:12px;font-weight:800;white-space:nowrap}
-.month-tab.active{border-color:#b51e26;background:#b51e26;color:white}
-.month-tab span{display:grid;place-items:center;min-width:20px;height:20px;border-radius:20px;background:#f0eeec;color:#5e5a5c;font-size:10px;padding:0 5px}
-.month-tab.active span{background:#ffffff2b;color:white}
-.month-section{margin:0 0 24px}
-.month-heading{display:flex;justify-content:space-between;align-items:end;gap:12px;margin:0 0 12px}
-.month-heading h2{font-size:24px;letter-spacing:-.035em;margin:4px 0 0}
-.month-heading>span{font-size:11px;color:#777;font-weight:700;white-space:nowrap;padding-bottom:4px}
-.month-records{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.month-record{min-width:0;text-align:left;display:grid;gap:5px;border:1px solid #e1dfdc;background:#fff;border-radius:11px;padding:15px 16px;box-shadow:0 3px 12px #16161608}
-.month-record.active{border-color:#b51e26;box-shadow:0 0 0 1px #b51e2622,0 4px 15px #1616160b}
-.month-instructor{font-size:17px;color:#17171b;letter-spacing:-.02em;overflow-wrap:anywhere}
-.month-date{font-size:11px;font-weight:800;color:#b51e26}
-.month-theme{font-size:12px;color:#646369;line-height:1.35;overflow-wrap:anywhere}
+/* Navegação por mês, instrutor e aula. */
+.archive-browser{background:#fff;border:1px solid #e7e5e3;border-radius:14px;padding:24px;min-height:230px}
+.archive-intro{margin-bottom:22px}
+.archive-intro h2{font-size:25px;letter-spacing:-.035em;margin:5px 0 3px;overflow-wrap:anywhere}
+.archive-intro p{font-size:12px;color:#777;margin:0}
+.archive-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.archive-card{display:grid;grid-template-columns:36px minmax(0,1fr) 14px;align-items:center;gap:12px;width:100%;min-height:78px;padding:14px;text-align:left;border:1px solid #e3e0dd;border-radius:11px;background:#fff;color:#19191c;cursor:pointer}
+.archive-card:hover,.archive-lesson:hover{border-color:#b51e26;background:#fffafa}
+.archive-card-icon{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#f7e9ea;color:#b51e26;font-size:17px;font-weight:800}
+.archive-card-copy{display:grid;gap:4px;min-width:0}
+.archive-card-copy strong{font-size:15px;overflow-wrap:anywhere}
+.archive-card-copy small,.archive-lesson small{font-size:11px;color:#777;line-height:1.35;overflow-wrap:anywhere}
+.archive-chevron{font-size:22px;color:#a9a3a2;line-height:1}
+.archive-crumbs{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-height:35px;margin:0 0 12px;font-size:12px;color:#777}
+.archive-crumbs button{border:0;background:transparent;color:#b51e26;font:inherit;font-weight:800;padding:6px 2px;cursor:pointer}
+.archive-crumbs strong{font-weight:800;color:#323136;overflow-wrap:anywhere}
+.archive-lessons{display:grid;gap:9px}
+.archive-lesson{position:relative;display:grid;gap:5px;width:100%;min-width:0;text-align:left;padding:15px 37px 15px 16px;border:1px solid #e3e0dd;border-radius:10px;background:#fff;cursor:pointer}
+.archive-lesson-date{font-size:11px;font-weight:800;color:#b51e26}
+.archive-lesson strong{font-size:15px;color:#1b1a1e;overflow-wrap:anywhere}
+.archive-lesson .archive-chevron{position:absolute;right:15px;top:50%;transform:translateY(-50%)}
 .past-sheet{margin-top:10px}
-@media(max-width:700px){.month-tabs{margin-bottom:13px}.month-tab{font-size:11px;padding:10px 11px}.month-heading h2{font-size:21px}.month-records{grid-template-columns:1fr}.month-instructor{font-size:16px}}
-@media print{.month-tabs,.month-section{display:none!important}.past-sheet{margin-top:0}}
+@media(max-width:700px){.archive-browser{padding:17px 14px;min-height:180px}.archive-grid{grid-template-columns:1fr}.archive-intro h2{font-size:21px}.archive-card{min-height:70px}.archive-crumbs{gap:5px;font-size:11px}.archive-lesson strong{font-size:14px}}
+@media print{.archive-browser,.archive-crumbs{display:none!important}.past-sheet{margin-top:0}}
 /* Compact stage headers and the simplified Lutas stage. */
 .step-title-input{box-sizing:border-box;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.25;min-height:38px;font-family:inherit}
 .step-time input[readonly]{background:#f1efed;color:#242226}
