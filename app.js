@@ -73,6 +73,26 @@ function saoNow(){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US'
 const isDue=(plan,at=saoNow())=>/^\d{4}-\d{2}-\d{2}$/.test(plan.date||'')&&at>=`${plan.date}T19:00`;
 const isCompleted=plan=>!!plan.completedAt||isDue(plan);
 const scheduledRecords=()=>store.past.filter(p=>!isCompleted(p)).sort((a,b)=>`${a.date}T${a.startTime||''}`.localeCompare(`${b.date}T${b.startTime||''}`));
+const archiveRecords=view=>view==='scheduled'?scheduledRecords():store.past.filter(isCompleted);
+const archiveStatusLabel=(view,count)=>view==='scheduled'?(count===1?'aula registrada':'aulas registradas'):(count===1?'aula concluída':'aulas concluídas');
+const instructorName=plan=>String(plan.instructor||'').trim().replace(/\s+/g,' ')||'Sem instrutor';
+const instructorKey=plan=>instructorName(plan).toLocaleLowerCase('pt-BR');
+const archiveMonths=view=>[...new Set(archiveRecords(view).map(monthKey))].sort((a,b)=>view==='scheduled'?a.localeCompare(b):b.localeCompare(a));
+const archiveMonthRecords=(view,month)=>archiveRecords(view).filter(p=>monthKey(p)===month);
+function archiveInstructors(view,month){
+  const grouped=new Map();
+  for(const plan of archiveMonthRecords(view,month)){
+    const key=instructorKey(plan);
+    if(!grouped.has(key))grouped.set(key,{key,name:instructorName(plan),count:0});
+    grouped.get(key).count++;
+  }
+  return [...grouped.values()].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
+}
+const archiveInstructorRecords=(view,month,instructor)=>archiveMonthRecords(view,month)
+  .filter(p=>instructorKey(p)===instructor)
+  .sort((a,b)=>view==='scheduled'
+    ?`${a.date}T${a.startTime||''}`.localeCompare(`${b.date}T${b.startTime||''}`)
+    :`${b.date}T${b.startTime||''}`.localeCompare(`${a.date}T${a.startTime||''}`));
 function months() {return [...new Set(store.past.filter(isCompleted).map(monthKey))].sort((a,b)=>a==='sem-data'?1:b==='sem-data'?-1:a.localeCompare(b));}
 function monthRecords(key) {return store.past.filter(p=>isCompleted(p)&&monthKey(p)===key).sort((a,b)=>`${b.date||''}T${b.startTime||''}`.localeCompare(`${a.date||''}T${a.startTime||''}`));}
 function syncScheduledSelection(){const records=scheduledRecords();if(!records.some(p=>p.id===store.scheduledId))store.scheduledId=records[0]?.id||null;}
@@ -109,6 +129,14 @@ function readStore() {
 let store=readStore();
 syncPastSelection();
 syncScheduledSelection();
+const archiveNav={scheduled:{month:null,instructor:null,planId:null},past:{month:null,instructor:null,planId:null}};
+function archivePlan(view){const id=archiveNav[view].planId;return id?archiveRecords(view).find(p=>p.id===id)||null:null;}
+function reconcileArchiveNav(view){
+  const nav=archiveNav[view];
+  if(nav.planId){const plan=archivePlan(view);if(plan){nav.month=monthKey(plan);nav.instructor=instructorKey(plan);}else nav.planId=null;}
+  if(nav.month&&!archiveMonths(view).includes(nav.month)){nav.month=null;nav.instructor=null;nav.planId=null;}
+  if(nav.instructor&&!archiveInstructors(view,nav.month).some(x=>x.key===nav.instructor)){nav.instructor=null;nav.planId=null;}
+}
 let toastTimer;
 let cloudReady=false;
 const cloudTimers=new Map(),cloudDirty=new Set();
@@ -160,7 +188,7 @@ async function connectCloud(){
 const draft=()=>store.view==='scheduled'?store.past.find(p=>p.id===store.scheduledId):store.drafts.find(p=>p.id===store.activeId)||store.drafts[0];
 const scheduled=()=>scheduledRecords().find(p=>p.id===store.scheduledId)||scheduledRecords()[0];
 const past=()=>monthRecords(store.pastMonth).find(p=>p.id===store.pastId)||monthRecords(store.pastMonth)[0];
-const current=()=>store.view==='past'?past():store.view==='scheduled'?scheduled():draft();
+const current=()=>store.view==='past'||store.view==='scheduled'?archivePlan(store.view):draft();
 const sum=p=>p.steps.reduce((n,s)=>n+s.minutes,0);
 const fightUsed=s=>s.fight?s.fight.rounds*s.fight.roundMinutes:0;
 function overflowStages(plan) {
@@ -170,7 +198,7 @@ function overflowStages(plan) {
 function persist(changed=false) {
   if(changed&&store.view!=='past'&&draft()){draft().isStarter=false;draft().updatedAt=Date.now();queueCloudSave(draft());}
   localStorage.setItem(KEY,JSON.stringify(store));
-  $('#saveStatus').textContent=store.view==='draft'?'✓ Rascunho salvo':store.view==='scheduled'?'✓ Alterações salvas':(past()?'✓ Aula concluída':'');
+  $('#saveStatus').textContent=store.view==='draft'?'✓ Rascunho salvo':store.view==='scheduled'&&current()?'✓ Alterações salvas':store.view==='past'&&current()?'✓ Aula concluída':'';
   renderList();
   renderDock();
 }
@@ -178,7 +206,7 @@ function toast(message) {
   const node=$('#toast');node.textContent=message;node.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove('show'),4300);
 }
-function setView(view) {store.view=view;if(view==='past')syncPastSelection();if(view==='scheduled')syncScheduledSelection();persist();render();closeSidebar();}
+function setView(view) {store.view=view;if(view!=='draft')archiveNav[view]={month:null,instructor:null,planId:null};persist();render();closeSidebar();}
 function renderList() {
   $('#draftTab').classList.toggle('active',store.view==='draft');
   $('#scheduledTab').classList.toggle('active',store.view==='scheduled');
@@ -188,18 +216,17 @@ function renderList() {
   $('#pastTab').setAttribute('aria-selected',String(store.view==='past'));
   $('#scheduledCount').textContent=scheduledRecords().length;
   $('#pastCount').textContent=store.past.filter(isCompleted).length;
-  const list=store.view==='past'?monthRecords(store.pastMonth):store.view==='scheduled'?scheduledRecords():store.drafts;
-  const activeId=store.view==='past'?store.pastId:store.view==='scheduled'?store.scheduledId:store.activeId;
-  const ordered=store.view==='draft'?list.slice().sort((a,b)=>(b.recordedAt||b.updatedAt)-(a.recordedAt||a.updatedAt)):list;
-  $('#planList').innerHTML=ordered.length?ordered.map(p=>
-    store.view!=='draft'
-      ?`<button type="button" class="plan-link ${p.id===activeId?'active':''}" data-plan="${p.id}"><strong>${escapeHtml(p.instructor||'Sem instrutor')}</strong><small>${escapeHtml(formatDate(p.date))} · ${escapeHtml(p.theme||'Sem tema')}</small></button>`
-      :`<button type="button" class="plan-link ${p.id===activeId?'active':''}" data-plan="${p.id}"><strong>${escapeHtml(p.className||p.theme||'Aula sem nome')}</strong><small>${escapeHtml(formatDate(p.date)||'Sem data')} · ${escapeHtml(p.startTime||'Sem horário')} · ${escapeHtml(p.instructor||'Sem instrutor')}</small></button>`).join('')
-    :`<p class="empty-list">${store.view==='scheduled'?'Nenhuma aula agendada.':store.view==='past'&&store.past.length?'Nenhuma aula concluída neste mês.':'Nenhuma aula registrada ainda.'}</p>`;
+  if(store.view!=='draft'){
+    const view=store.view,selected=archiveNav[view].month;
+    $('#planList').innerHTML=archiveMonths(view).map(month=>`<button type="button" class="plan-link ${month===selected?'active':''}" data-archive-month="${month}"><strong>${escapeHtml(monthLabel(month))}</strong><small>${archiveMonthRecords(view,month).length} ${archiveMonthRecords(view,month).length===1?'aula':'aulas'}</small></button>`).join('')||`<p class="empty-list">Nenhuma aula ${view==='scheduled'?'registrada':'concluída'} ainda.</p>`;
+    return;
+  }
+  const ordered=store.drafts.slice().sort((a,b)=>(b.recordedAt||b.updatedAt)-(a.recordedAt||a.updatedAt));
+  $('#planList').innerHTML=ordered.map(p=>`<button type="button" class="plan-link ${p.id===store.activeId?'active':''}" data-plan="${p.id}"><strong>${escapeHtml(p.className||p.theme||'Aula sem nome')}</strong><small>${escapeHtml(formatDate(p.date)||'Sem data')} · ${escapeHtml(p.startTime||'Sem horário')} · ${escapeHtml(p.instructor||'Sem instrutor')}</small></button>`).join('');
 }
 function renderDock() {
   const dock=$('#timeDock');
-  if(store.view==='past'||!draft()){dock.hidden=true;return;}
+  if(store.view==='past'||store.view==='scheduled'&&!archiveNav.scheduled.planId||!draft()){dock.hidden=true;return;}
   dock.hidden=false;
   const plan=draft(),total=sum(plan),remaining=TARGET-total,over=overflowStages(plan);
   const width=Math.min(100,Math.max(0,total/TARGET*100));
@@ -207,18 +234,19 @@ function renderDock() {
   dock.innerHTML=`<div class="dock-top"><strong>${remaining>0?`${remaining} min disponíveis`:remaining===0?'60 min fechados':`${-remaining} min acima`}</strong><span>${total} / ${TARGET} min</span></div><div class="dock-track"><div class="dock-fill ${remaining<0?'over':''}" style="width:${width}%"></div></div><small>${remaining<0?(last&&last.to>last.from?`Último aumento: ${escapeHtml(last.title)} (+${last.to-last.from} min)`:`Excesso a partir de: ${escapeHtml(over[0]?.title||'etapa')}`):remaining===0?'Pronto para registrar':'Distribua o tempo restante entre as etapas'}</small>`;
 }
 function render() {
+  if(store.view!=='draft')reconcileArchiveNav(store.view);
   renderList();renderDock();
   const isPast=store.view==='past',isScheduled=store.view==='scheduled',plan=current();
   $('#newPlan').textContent='＋ Nova aula';
-  $('#pageEyebrow').textContent=isPast?'AULAS CONCLUÍDAS':isScheduled?'AULA AGENDADA':'MONTAR AULA';
-  $('#pageTitle').textContent=isPast?'Aulas concluídas':(plan?.className||'Nova aula');
-  $('#pageSubtitle').textContent=isPast?'Registro completo das aulas realizadas.':isScheduled?'Aula registrada. Você pode completar ou ajustar os dados até as 19h do dia da aula.':'Preencha as etapas e registre a aula ao final.';
+  $('#pageEyebrow').textContent=isPast?'AULAS CONCLUÍDAS':isScheduled?'AULAS REGISTRADAS':'MONTAR AULA';
+  $('#pageTitle').textContent=plan?.className||(isPast?'Aulas concluídas':isScheduled?'Aulas registradas':'Nova aula');
+  $('#pageSubtitle').textContent=isPast?'Encontre os registros por mês e instrutor.':isScheduled?(plan?'Aula registrada. Você pode ajustar os dados até as 19h do dia da aula.':'Encontre as aulas por mês e instrutor.'):'Preencha as etapas e registre a aula ao final.';
   $('#duplicatePlan').textContent=isPast?'Usar como modelo':'Duplicar';
   $('#duplicatePlan').hidden=!plan;
   $('#deletePlan').hidden=!plan;
-  $('#saveStatus').textContent=isPast?(plan?'✓ Aula concluída':''):isScheduled?'✓ Alterações salvas':'✓ Rascunho salvo';
+  $('#saveStatus').textContent=isPast?(plan?'✓ Aula concluída':''):isScheduled?(plan?'✓ Alterações salvas':''):'✓ Rascunho salvo';
   $('#printButton').hidden=!plan;
-  $('#editor').innerHTML=isPast?renderPast(plan):isScheduled&&!plan?'<div class="empty-state"><h2>Nenhuma aula agendada</h2><p>As aulas registradas para datas futuras aparecem aqui.</p></div>':renderDraft(plan,isScheduled);
+  $('#editor').innerHTML=isPast||isScheduled?renderArchive(store.view):renderDraft(plan);
   $('#editor').querySelectorAll('.step-title-input').forEach(resizeStepTitle);
   $('#editor').querySelectorAll('.activity-text, #notes').forEach(resizeWritingArea);
   loadVideoPreviews();
@@ -265,7 +293,7 @@ function renderDraft(plan,isScheduled=false) {
     <div class="stages">${plan.steps.map((s,i)=>renderStep(s,i,plan.steps.length,over)).join('')}</div>
     <button type="button" class="add-stage no-print" data-action="add-step">＋ Adicionar etapa</button>
     <div class="notes-section"><div class="section-title"><h2>03 / OBSERVAÇÕES</h2></div><div class="field"><label for="notes">Observações da aula</label><textarea id="notes" data-field="notes" placeholder="Objetivos, adaptações, materiais ou registro da aula">${escapeHtml(plan.notes)}</textarea><div class="notes-print print-only">${escapeHtml(plan.notes)}</div></div></div>
-    <div class="final-review"><div class="section-title"><h2>04 / CONFERÊNCIA FINAL</h2></div><div class="final-total ${remaining===0?'ready':'needs-adjustment'}"><span>Tempo das etapas</span><strong>${total} / ${TARGET} min</strong><em>${remaining>0?`Faltam ${remaining} min`:remaining<0?`Passou ${-remaining} min`:'Tempo correto'}</em></div>${overText}${issues.map(x=>`<p class="validation-issue">${escapeHtml(x)}</p>`).join('')}<p class="final-hint">${isScheduled?'Aula agendada. Cada alteração é salva automaticamente até as 19h do dia da aula.':'O registro final exige exatamente 60 minutos. O rascunho é salvo automaticamente.'}</p>${isScheduled?'':`<button id="registerClass" class="button primary register-button no-print" type="button">✓ Salvar e registrar aula</button>`}</div>
+    <div class="final-review"><div class="section-title"><h2>04 / CONFERÊNCIA FINAL</h2></div><div class="final-total ${remaining===0?'ready':'needs-adjustment'}"><span>Tempo das etapas</span><strong>${total} / ${TARGET} min</strong><em>${remaining>0?`Faltam ${remaining} min`:remaining<0?`Passou ${-remaining} min`:'Tempo correto'}</em></div>${overText}${issues.map(x=>`<p class="validation-issue">${escapeHtml(x)}</p>`).join('')}<p class="final-hint">${isScheduled?'Aula registrada. Cada alteração é salva automaticamente até as 19h do dia da aula.':'O registro final exige exatamente 60 minutos. O rascunho é salvo automaticamente.'}</p>${isScheduled?'':`<button id="registerClass" class="button primary register-button no-print" type="button">✓ Salvar e registrar aula</button>`}</div>
   </div></article>`;
 }
 function field(key,label,value,placeholder='',extraClass='',type='text') {return `<div class="field ${extraClass}"><label for="${key}">${label}</label><input id="${key}" type="${type}" data-field="${key}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}"></div>`;}
@@ -276,16 +304,28 @@ function renderStep(s,i,count,over) {
   const content=isFight?`<div class="fight-simple"><div class="fight-fields"><label>Quantidade de lutas<input class="fight-input" type="number" min="1" step="1" data-fight="${s.id}:rounds" value="${f.rounds}"></label><label>Minutos por luta<input class="fight-input" type="number" min="1" step="1" data-fight="${s.id}:roundMinutes" value="${f.roundMinutes}"></label></div><p class="fight-summary">${f.rounds} ${f.rounds===1?'luta':'lutas'} de ${f.roundMinutes} ${f.roundMinutes===1?'minuto':'minutos'} · ${fightUsed(s)} min no total</p><div class="field"><label for="fight-observation-${s.id}">Observação</label><input id="fight-observation-${s.id}" data-fight-observation="${s.id}" value="${escapeHtml(f.observation)}" placeholder="Ex.: casar duplas por peso e experiência"></div></div>`:`<div class="field"><label for="activity-${s.id}">Atividades / conteúdo da etapa</label><textarea class="activity-text" id="activity-${s.id}" data-activity="${s.id}" placeholder="Escreva livremente o que será feito nesta etapa">${escapeHtml(s.activity)}</textarea><div class="activity-print print-only">${escapeHtml(s.activity)}</div></div>${subdiv}${!s.subdivisions?.length?`<div class="stage-extras no-print"><button class="small-button" type="button" data-action="add-sub" data-id="${s.id}">＋ Dividir tempo</button></div>`:''}`;
   return `<section class="step-card ${over.some(x=>x.id===s.id)?'step-over':''}" data-step="${s.id}"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><textarea rows="1" class="step-title-input" aria-label="Título da etapa ${i+1}" data-step-title="${s.id}">${escapeHtml(s.title)}</textarea><label class="step-time"><input type="number" min="0" step="1" aria-label="Tempo da etapa ${i+1}" data-step-time="${s.id}" value="${s.minutes}" ${isFight?'readonly':''}> min</label><div class="step-controls no-print"><button class="icon-button" type="button" data-action="up-step" data-id="${s.id}" aria-label="Subir etapa" ${i===0?'disabled':''}>↑</button><button class="icon-button" type="button" data-action="down-step" data-id="${s.id}" aria-label="Descer etapa" ${i===count-1?'disabled':''}>↓</button><button class="icon-button" type="button" data-action="remove-step" data-id="${s.id}" aria-label="Remover etapa">×</button></div></div><div class="step-body">${content}</div></section>`;
 }
-function renderMonthNavigation() {
-  return `<div class="month-tabs no-print" role="tablist" aria-label="Filtrar aulas por mês">${months().map(key=>`<button type="button" role="tab" aria-selected="${key===store.pastMonth}" class="month-tab ${key===store.pastMonth?'active':''}" data-month="${key}">${escapeHtml(monthLabel(key))}<span>${monthRecords(key).length}</span></button>`).join('')}</div>`;
-}
-function renderMonthCards() {
-  const records=monthRecords(store.pastMonth);
-  return `<section class="month-section no-print"><div class="month-heading"><div><span class="eyebrow">REGISTROS DO MÊS</span><h2>${escapeHtml(monthLabel(store.pastMonth))}</h2></div><span>${records.length} ${records.length===1?'aula':'aulas'}</span></div><div class="month-records">${records.map(p=>`<button type="button" class="month-record ${p.id===store.pastId?'active':''}" data-past-plan="${p.id}"><strong class="month-instructor">${escapeHtml(p.instructor||'Sem instrutor')}</strong><span class="month-date">${escapeHtml(formatDate(p.date))}${p.startTime?` · ${escapeHtml(p.startTime)}`:''}</span><span class="month-theme">${escapeHtml(p.theme||'Sem tema')}</span></button>`).join('')}</div></section>`;
+function renderArchive(view) {
+  const nav=archiveNav[view],records=archiveRecords(view),label=view==='scheduled'?'Registradas':'Concluídas';
+  if(!records.length)return `<div class="empty-state"><h2>Nenhuma aula ${view==='scheduled'?'registrada':'concluída'}</h2><p>As aulas registradas aparecerão aqui por mês e instrutor.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>`;
+  const crumbs=nav.month?`<nav class="archive-crumbs no-print" aria-label="Caminho das aulas"><button type="button" data-archive-back="root">${label}</button><span aria-hidden="true">›</span>${nav.instructor?`<button type="button" data-archive-back="month">${escapeHtml(monthLabel(nav.month))}</button>`:`<strong>${escapeHtml(monthLabel(nav.month))}</strong>`}${nav.instructor?`<span aria-hidden="true">›</span>${nav.planId?`<button type="button" data-archive-back="instructor">${escapeHtml(archiveInstructors(view,nav.month).find(x=>x.key===nav.instructor)?.name||'Instrutor')}</button>`:`<strong>${escapeHtml(archiveInstructors(view,nav.month).find(x=>x.key===nav.instructor)?.name||'Instrutor')}</strong>`}`:''}</nav>`:'';
+  if(!nav.month){
+    return `<section class="archive-browser"><div class="archive-intro"><span class="eyebrow">ORGANIZAÇÃO DAS AULAS</span><h2>Escolha o mês</h2><p>${records.length} ${archiveStatusLabel(view,records.length)}</p></div><div class="archive-grid">${archiveMonths(view).map(month=>`<button type="button" class="archive-card" data-archive-month="${month}"><span class="archive-card-icon" aria-hidden="true">▦</span><span class="archive-card-copy"><strong>${escapeHtml(monthLabel(month))}</strong><small>${archiveMonthRecords(view,month).length} ${archiveMonthRecords(view,month).length===1?'aula':'aulas'}</small></span><span class="archive-chevron" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
+  }
+  if(!nav.instructor){
+    const instructors=archiveInstructors(view,nav.month);
+    return `${crumbs}<section class="archive-browser"><div class="archive-intro"><span class="eyebrow">${escapeHtml(monthLabel(nav.month).toLocaleUpperCase('pt-BR'))}</span><h2>Escolha o instrutor</h2><p>${instructors.length} ${instructors.length===1?'instrutor':'instrutores'} · ${archiveMonthRecords(view,nav.month).length} ${archiveMonthRecords(view,nav.month).length===1?'aula':'aulas'}</p></div><div class="archive-grid">${instructors.map(person=>`<button type="button" class="archive-card" data-archive-instructor="${escapeHtml(person.key)}"><span class="archive-card-icon" aria-hidden="true">●</span><span class="archive-card-copy"><strong>${escapeHtml(person.name)}</strong><small>${person.count} ${person.count===1?'aula':'aulas'}</small></span><span class="archive-chevron" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
+  }
+  if(!nav.planId){
+    const lessons=archiveInstructorRecords(view,nav.month,nav.instructor);
+    const name=archiveInstructors(view,nav.month).find(x=>x.key===nav.instructor)?.name||'Instrutor';
+    return `${crumbs}<section class="archive-browser"><div class="archive-intro"><span class="eyebrow">${escapeHtml(monthLabel(nav.month).toLocaleUpperCase('pt-BR'))}</span><h2>${escapeHtml(name)}</h2><p>${lessons.length} ${archiveStatusLabel(view,lessons.length)}</p></div><div class="archive-lessons">${lessons.map(plan=>`<button type="button" class="archive-lesson" data-archive-plan="${escapeHtml(plan.id)}"><span class="archive-lesson-date">${escapeHtml(formatDate(plan.date))}${plan.startTime?` · ${escapeHtml(plan.startTime)}`:''}</span><strong>${escapeHtml(plan.className||plan.theme||'Aula sem nome')}</strong><small>${escapeHtml(plan.theme||plan.group||'Sem tema')}</small><span class="archive-chevron" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
+  }
+  const plan=archivePlan(view);
+  return `${crumbs}${view==='past'?renderPast(plan):renderDraft(plan,true)}`;
 }
 function renderPast(plan) {
   if(!plan)return `<div class="empty-state"><h2>Nenhuma aula registrada</h2><p>Quando salvar uma aula de 60 minutos, ela aparecerá aqui com todos os detalhes.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>`;
-  return `${renderMonthNavigation()}${renderMonthCards()}<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
+  return `<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
 }
 function record(label,value){return `<div class="record-field"><small>${label}</small><strong>${escapeHtml(value||'—')}</strong></div>`;}
 function formatDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'';const [y,m,d]=value.split('-');return `${d}/${m}/${y}`;}
@@ -304,8 +344,27 @@ function handleAction(action,id){if(action==='show-drafts'){setView('draft');ret
   else if(action==='remove-sub'){const [sid,pid]=id.split(':');s=p.steps.find(x=>x.id===sid);s.subdivisions=s.subdivisions.filter(x=>x.id!==pid);if(s.subdivisions.length)rebalanceSubdivisions(s);else delete s.subdivisions;}
   persist(true);render();
 }
-function registerClass(){const p=draft();const required=[['className','nome da aula'],['instructor','instrutor/monitor'],['date','data'],['startTime','horário'],['group','turma'],['theme','tema']];const missing=required.find(([key])=>!String(p[key]||'').trim());if(missing){toast(`Preencha ${missing[1]} antes de registrar.`);$(`#${missing[0]}`)?.focus();return;}if(sum(p)!==TARGET){const over=overflowStages(p);toast(sum(p)>TARGET?`Excedeu ${sum(p)-TARGET} min. Confira ${over[0]?.title||'as etapas'}.`:`Faltam ${TARGET-sum(p)} min para completar a aula.`);$('#registerClass').scrollIntoView({behavior:'smooth',block:'center'});return;}const invalid=p.steps.find(s=>s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes || s.fight&&fightUsed(s)>s.minutes);if(invalid){toast(`Revise o tempo interno de ${invalid.title}.`);return;}const registered=structuredClone(p);registered.recordedAt=Date.now();registered.updatedAt=registered.recordedAt;registered.scheduledAt=registered.recordedAt;registered.completedAt=isDue(registered)?registered.recordedAt:null;store.past.unshift(registered);store.pastId=registered.id;store.scheduledId=registered.id;store.pastMonth=monthKey(registered);store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;store.view=registered.completedAt?'past':'scheduled';persist();queueCloudSave(registered);render();window.scrollTo({top:0,behavior:'smooth'});toast(registered.completedAt?'Aula registrada como concluída.':'Aula registrada em Agendadas.');}
-$('#editor').addEventListener('click',e=>{const month=e.target.closest('[data-month]');if(month){store.pastMonth=month.dataset.month;syncPastSelection();persist();render();return;}const record=e.target.closest('[data-past-plan]');if(record){store.pastId=record.dataset.pastPlan;persist();render();return;}const action=e.target.closest('[data-action]');if(action)handleAction(action.dataset.action,action.dataset.id);if(e.target.closest('#registerClass'))registerClass();});
+function registerClass(){const p=draft();const required=[['className','nome da aula'],['instructor','instrutor/monitor'],['date','data'],['startTime','horário'],['group','turma'],['theme','tema']];const missing=required.find(([key])=>!String(p[key]||'').trim());if(missing){toast(`Preencha ${missing[1]} antes de registrar.`);$(`#${missing[0]}`)?.focus();return;}if(sum(p)!==TARGET){const over=overflowStages(p);toast(sum(p)>TARGET?`Excedeu ${sum(p)-TARGET} min. Confira ${over[0]?.title||'as etapas'}.`:`Faltam ${TARGET-sum(p)} min para completar a aula.`);$('#registerClass').scrollIntoView({behavior:'smooth',block:'center'});return;}const invalid=p.steps.find(s=>s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes || s.fight&&fightUsed(s)>s.minutes);if(invalid){toast(`Revise o tempo interno de ${invalid.title}.`);return;}const registered=structuredClone(p);registered.recordedAt=Date.now();registered.updatedAt=registered.recordedAt;registered.scheduledAt=registered.recordedAt;registered.completedAt=isDue(registered)?registered.recordedAt:null;store.past.unshift(registered);store.pastId=registered.id;store.scheduledId=registered.id;store.pastMonth=monthKey(registered);store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;store.view=registered.completedAt?'past':'scheduled';archiveNav[store.view]={month:monthKey(registered),instructor:instructorKey(registered),planId:registered.id};persist();queueCloudSave(registered);render();window.scrollTo({top:0,behavior:'smooth'});toast(registered.completedAt?'Aula registrada como concluída.':'Aula registrada em Registradas.');}
+function navigateArchive(target,value){
+  const nav=archiveNav[store.view];
+  if(target==='month'){nav.month=value;nav.instructor=null;nav.planId=null;}
+  else if(target==='instructor'){nav.instructor=value;nav.planId=null;}
+  else if(target==='plan'){nav.planId=value;if(store.view==='past')store.pastId=value;else store.scheduledId=value;}
+  else if(target==='root'){nav.month=null;nav.instructor=null;nav.planId=null;}
+  else if(target==='back-month'){nav.instructor=null;nav.planId=null;}
+  else if(target==='back-instructor')nav.planId=null;
+  persist();render();window.scrollTo({top:0,behavior:'smooth'});
+}
+$('#editor').addEventListener('click',e=>{
+  if(store.view!=='draft'){
+    const month=e.target.closest('[data-archive-month]');if(month){navigateArchive('month',month.dataset.archiveMonth);return;}
+    const instructor=e.target.closest('[data-archive-instructor]');if(instructor){navigateArchive('instructor',instructor.dataset.archiveInstructor);return;}
+    const plan=e.target.closest('[data-archive-plan]');if(plan){navigateArchive('plan',plan.dataset.archivePlan);return;}
+    const back=e.target.closest('[data-archive-back]');if(back){navigateArchive(back.dataset.archiveBack==='month'?'back-month':back.dataset.archiveBack==='instructor'?'back-instructor':'root');return;}
+  }
+  const action=e.target.closest('[data-action]');if(action)handleAction(action.dataset.action,action.dataset.id);
+  if(e.target.closest('#registerClass'))registerClass();
+});
 $('#editor').addEventListener('input',e=>{if(store.view==='past')return;const t=e.target,p=draft();if(t.dataset.field!==undefined){p[t.dataset.field]=t.value;if(t.dataset.field==='className')$('#pageTitle').textContent=t.value||'Nova aula';if(t.dataset.field==='notes'){$('#editor .notes-print').textContent=t.value;resizeWritingArea(t);}if(t.dataset.field==='videoUrl')$('#videoActions').innerHTML=videoLink(t.value);persist(true);}else if(t.dataset.stepTitle){p.steps.find(s=>s.id===t.dataset.stepTitle).title=t.value;resizeStepTitle(t);persist(true);}else if(t.dataset.activity){p.steps.find(s=>s.id===t.dataset.activity).activity=t.value;t.nextElementSibling.textContent=t.value;resizeWritingArea(t);persist(true);}else if(t.dataset.subName){const [sid,pid]=t.dataset.subName.split(':');p.steps.find(s=>s.id===sid).subdivisions.find(x=>x.id===pid).name=t.value;persist(true);}else if(t.dataset.fightObservation){p.steps.find(s=>s.id===t.dataset.fightObservation).fight.observation=t.value;persist(true);}});
 $('#editor').addEventListener('focusout',e=>{const t=e.target;if(!t.dataset.stepTitle||store.view==='past')return;const s=draft().steps.find(x=>x.id===t.dataset.stepTitle);const wasFight=!!s.fight,nowFight=isFightStage(s);if(wasFight===nowFight)return;if(nowFight){s.fight={rounds:3,roundMinutes:3,observation:''};s.minutes=fightUsed(s);delete s.subdivisions;}else delete s.fight;persist(true);render();});
 $('#editor').addEventListener('change',e=>{if(store.view==='past')return;const t=e.target;if(t.dataset.field==='date'&&store.view==='scheduled'){reconcileSchedule();return;}if(t.dataset.stepTime)changeStepTime(t.dataset.stepTime,t.value);else if(t.dataset.subTime){const [sid,pid]=t.dataset.subTime.split(':');changeSubTime(sid,pid,t.value);}else if(t.dataset.fight){const [sid,key]=t.dataset.fight.split(':'),s=draft().steps.find(x=>x.id===sid),n=Number(t.value);if(!Number.isInteger(n)||n<1){toast('Use um número inteiro maior que zero.');render();return;}const before=s.minutes;s.fight[key]=n;s.minutes=fightUsed(s);draft().lastTimeEdit={id:s.id,title:s.title,from:before,to:s.minutes};persist(true);render();}});
@@ -326,7 +385,7 @@ $('#editor').addEventListener('change',async e=>{
     if(oldId&&!videoIsReferenced(oldId)){deleteVideo(oldId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldId).catch(()=>{});}
   }catch{toast('Não foi possível salvar o vídeo. Verifique o espaço disponível no navegador.');e.target.value='';}
 });
-$('#planList').addEventListener('click',e=>{const button=e.target.closest('[data-plan]');if(!button)return;if(store.view==='past')store.pastId=button.dataset.plan;else if(store.view==='scheduled')store.scheduledId=button.dataset.plan;else store.activeId=button.dataset.plan;persist();render();closeSidebar();});
+$('#planList').addEventListener('click',e=>{const month=e.target.closest('[data-archive-month]');if(month&&store.view!=='draft'){navigateArchive('month',month.dataset.archiveMonth);closeSidebar();return;}const button=e.target.closest('[data-plan]');if(!button)return;store.activeId=button.dataset.plan;persist();render();closeSidebar();});
 $('#draftTab').onclick=()=>setView('draft');$('#scheduledTab').onclick=()=>setView('scheduled');$('#pastTab').onclick=()=>setView('past');
 $('#newPlan').onclick=()=>{const p=template(true);store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();closeSidebar();};
 $('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.scheduledAt=null;p.completedAt=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();toast('Cópia aberta para montagem.');};
@@ -348,7 +407,8 @@ function reconcileSchedule(){
   const due=store.past.filter(p=>p.scheduledAt&&!p.completedAt&&isDue(p));
   if(!due.length)return;
   due.forEach(p=>{p.completedAt=Date.now();p.updatedAt=Date.now();queueCloudSave(p);});
-  if(store.view==='scheduled'&&due.some(p=>p.id===store.scheduledId)){store.view='past';store.pastId=store.scheduledId;store.pastMonth=monthKey(due.find(p=>p.id===store.scheduledId));}
+  const opened=due.find(p=>p.id===archiveNav.scheduled.planId);
+  if(store.view==='scheduled'&&opened){store.view='past';store.pastId=opened.id;store.pastMonth=monthKey(opened);archiveNav.past={month:monthKey(opened),instructor:instructorKey(opened),planId:opened.id};}
   syncScheduledSelection();syncPastSelection();
   localStorage.setItem(KEY,JSON.stringify(store));render();
 }
