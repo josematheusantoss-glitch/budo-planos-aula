@@ -1,5 +1,6 @@
 const KEY = 'budo-lesson-plans-v2';
 const OLD_KEY = 'budo-lesson-plans-v1';
+const CLOUD_SYNC_KEY = 'budo-cloud-last-sync-v1';
 const TARGET = 60;
 const $ = selector => document.querySelector(selector);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -31,6 +32,7 @@ function template(blank = false) {
     ]
   };
 }
+const emptyDraft=()=>({...template(true),isStarter:true});
 const isFightStage=s=>/^lutas?\b/i.test(String(s.title||'').trim());
 function normalizePlan(plan, isDraft = false) {
   const normalized={
@@ -86,7 +88,7 @@ function readStore() {
     const saved=JSON.parse(localStorage.getItem(KEY));
     if(saved && Array.isArray(saved.drafts) && Array.isArray(saved.past)) {
       saved.drafts=saved.drafts.map(p=>normalizePlan(p,true)); saved.past=saved.past.map(p=>normalizePlan(p,false));
-      if(!saved.drafts.length) saved.drafts=[template(true)];
+      if(!saved.drafts.length) saved.drafts=[emptyDraft()];
       saved.view=['draft','scheduled','past'].includes(saved.view)?saved.view:'draft';
       saved.scheduledId=saved.scheduledId||null;
       saved.activeId=saved.drafts.some(p=>p.id===saved.activeId)?saved.activeId:saved.drafts[0].id;
@@ -124,13 +126,19 @@ function queueCloudSave(plan){
 async function syncCloud(){
   if(!cloudReady)return;
   const remote=await budoCloud.listLessons();
+  const previousSync=Number(localStorage.getItem(CLOUD_SYNC_KEY)||0);
   const local=[...store.drafts,...store.past],merged=new Map(remote.map(row=>[row.id,normalizePlan(row.plan,!row.plan.recordedAt)]));
   const upload=[];
-  for(const plan of local){if(plan.isStarter&&remote.length&&!merged.has(plan.id))continue;const server=merged.get(plan.id);if(!server||cloudDirty.has(plan.id)||plan.updatedAt>server.updatedAt){merged.set(plan.id,plan);upload.push(plan);}}
+  for(const plan of local){
+    const server=merged.get(plan.id);
+    if(plan.isStarter&&!server){if(!remote.length)merged.set(plan.id,plan);continue;}
+    if(!server&&previousSync&&!cloudDirty.has(plan.id)&&plan.updatedAt<=previousSync)continue;
+    if(!server||cloudDirty.has(plan.id)||plan.updatedAt>server.updatedAt){merged.set(plan.id,plan);upload.push(plan);}
+  }
   const all=[...merged.values()];
   store.drafts=all.filter(p=>!p.recordedAt);
   store.past=all.filter(p=>!!p.recordedAt);
-  if(!store.drafts.length)store.drafts=[template(true)];
+  if(!store.drafts.length)store.drafts=[emptyDraft()];
   if(!store.drafts.some(p=>p.id===store.activeId))store.activeId=store.drafts[0].id;
   syncScheduledSelection();syncPastSelection();
   localStorage.setItem(KEY,JSON.stringify(store));render();
@@ -141,6 +149,7 @@ async function syncCloud(){
   }
   localStorage.setItem(KEY,JSON.stringify(store));
   for(const plan of upload){try{await budoCloud.saveLesson(plan);}catch{cloudDirty.add(plan.id);}}
+  localStorage.setItem(CLOUD_SYNC_KEY,String(Date.now()));
 }
 async function connectCloud(){
   const ok=await budoCloud.restore();
@@ -295,7 +304,7 @@ function handleAction(action,id){if(action==='show-drafts'){setView('draft');ret
   else if(action==='remove-sub'){const [sid,pid]=id.split(':');s=p.steps.find(x=>x.id===sid);s.subdivisions=s.subdivisions.filter(x=>x.id!==pid);if(s.subdivisions.length)rebalanceSubdivisions(s);else delete s.subdivisions;}
   persist(true);render();
 }
-function registerClass(){const p=draft();const required=[['className','nome da aula'],['instructor','instrutor/monitor'],['date','data'],['startTime','horário'],['group','turma'],['theme','tema']];const missing=required.find(([key])=>!String(p[key]||'').trim());if(missing){toast(`Preencha ${missing[1]} antes de registrar.`);$(`#${missing[0]}`)?.focus();return;}if(sum(p)!==TARGET){const over=overflowStages(p);toast(sum(p)>TARGET?`Excedeu ${sum(p)-TARGET} min. Confira ${over[0]?.title||'as etapas'}.`:`Faltam ${TARGET-sum(p)} min para completar a aula.`);$('#registerClass').scrollIntoView({behavior:'smooth',block:'center'});return;}const invalid=p.steps.find(s=>s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes || s.fight&&fightUsed(s)>s.minutes);if(invalid){toast(`Revise o tempo interno de ${invalid.title}.`);return;}const registered=structuredClone(p);registered.recordedAt=Date.now();registered.updatedAt=registered.recordedAt;registered.scheduledAt=registered.recordedAt;registered.completedAt=isDue(registered)?registered.recordedAt:null;store.past.unshift(registered);store.pastId=registered.id;store.scheduledId=registered.id;store.pastMonth=monthKey(registered);store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;store.view=registered.completedAt?'past':'scheduled';persist();queueCloudSave(registered);render();window.scrollTo({top:0,behavior:'smooth'});toast(registered.completedAt?'Aula registrada como concluída.':'Aula registrada em Agendadas.');}
+function registerClass(){const p=draft();const required=[['className','nome da aula'],['instructor','instrutor/monitor'],['date','data'],['startTime','horário'],['group','turma'],['theme','tema']];const missing=required.find(([key])=>!String(p[key]||'').trim());if(missing){toast(`Preencha ${missing[1]} antes de registrar.`);$(`#${missing[0]}`)?.focus();return;}if(sum(p)!==TARGET){const over=overflowStages(p);toast(sum(p)>TARGET?`Excedeu ${sum(p)-TARGET} min. Confira ${over[0]?.title||'as etapas'}.`:`Faltam ${TARGET-sum(p)} min para completar a aula.`);$('#registerClass').scrollIntoView({behavior:'smooth',block:'center'});return;}const invalid=p.steps.find(s=>s.subdivisions?.length&&s.subdivisions.reduce((n,x)=>n+x.minutes,0)!==s.minutes || s.fight&&fightUsed(s)>s.minutes);if(invalid){toast(`Revise o tempo interno de ${invalid.title}.`);return;}const registered=structuredClone(p);registered.recordedAt=Date.now();registered.updatedAt=registered.recordedAt;registered.scheduledAt=registered.recordedAt;registered.completedAt=isDue(registered)?registered.recordedAt:null;store.past.unshift(registered);store.pastId=registered.id;store.scheduledId=registered.id;store.pastMonth=monthKey(registered);store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;store.view=registered.completedAt?'past':'scheduled';persist();queueCloudSave(registered);render();window.scrollTo({top:0,behavior:'smooth'});toast(registered.completedAt?'Aula registrada como concluída.':'Aula registrada em Agendadas.');}
 $('#editor').addEventListener('click',e=>{const month=e.target.closest('[data-month]');if(month){store.pastMonth=month.dataset.month;syncPastSelection();persist();render();return;}const record=e.target.closest('[data-past-plan]');if(record){store.pastId=record.dataset.pastPlan;persist();render();return;}const action=e.target.closest('[data-action]');if(action)handleAction(action.dataset.action,action.dataset.id);if(e.target.closest('#registerClass'))registerClass();});
 $('#editor').addEventListener('input',e=>{if(store.view==='past')return;const t=e.target,p=draft();if(t.dataset.field!==undefined){p[t.dataset.field]=t.value;if(t.dataset.field==='className')$('#pageTitle').textContent=t.value||'Nova aula';if(t.dataset.field==='notes'){$('#editor .notes-print').textContent=t.value;resizeWritingArea(t);}if(t.dataset.field==='videoUrl')$('#videoActions').innerHTML=videoLink(t.value);persist(true);}else if(t.dataset.stepTitle){p.steps.find(s=>s.id===t.dataset.stepTitle).title=t.value;resizeStepTitle(t);persist(true);}else if(t.dataset.activity){p.steps.find(s=>s.id===t.dataset.activity).activity=t.value;t.nextElementSibling.textContent=t.value;resizeWritingArea(t);persist(true);}else if(t.dataset.subName){const [sid,pid]=t.dataset.subName.split(':');p.steps.find(s=>s.id===sid).subdivisions.find(x=>x.id===pid).name=t.value;persist(true);}else if(t.dataset.fightObservation){p.steps.find(s=>s.id===t.dataset.fightObservation).fight.observation=t.value;persist(true);}});
 $('#editor').addEventListener('focusout',e=>{const t=e.target;if(!t.dataset.stepTitle||store.view==='past')return;const s=draft().steps.find(x=>x.id===t.dataset.stepTitle);const wasFight=!!s.fight,nowFight=isFightStage(s);if(wasFight===nowFight)return;if(nowFight){s.fight={rounds:3,roundMinutes:3,observation:''};s.minutes=fightUsed(s);delete s.subdivisions;}else delete s.fight;persist(true);render();});
@@ -321,11 +330,11 @@ $('#planList').addEventListener('click',e=>{const button=e.target.closest('[data
 $('#draftTab').onclick=()=>setView('draft');$('#scheduledTab').onclick=()=>setView('scheduled');$('#pastTab').onclick=()=>setView('past');
 $('#newPlan').onclick=()=>{const p=template(true);store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();closeSidebar();};
 $('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.scheduledAt=null;p.completedAt=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();toast('Cópia aberta para montagem.');};
-$('#deletePlan').onclick=()=>{const isRegistered=store.view!=='draft',p=current();if(!p||!confirm(`Excluir ${isRegistered?'este registro':'este rascunho'}?`))return;const oldVideoId=p.videoFile?.id;if(isRegistered){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=null;store.scheduledId=null;syncPastSelection();syncScheduledSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;}persist();render();if(cloudReady)budoCloud.deleteLesson(p.id).catch(()=>toast('Exclusão salva neste aparelho; sincronização pendente.'));if(oldVideoId&&!videoIsReferenced(oldVideoId)){deleteVideo(oldVideoId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldVideoId).catch(()=>{});}toast(isRegistered?'Registro excluído.':'Rascunho excluído.');};
+$('#deletePlan').onclick=()=>{const isRegistered=store.view!=='draft',p=current();if(!p||!confirm(`Excluir ${isRegistered?'este registro':'este rascunho'}?`))return;const oldVideoId=p.videoFile?.id;if(isRegistered){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=null;store.scheduledId=null;syncPastSelection();syncScheduledSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;}persist();render();if(cloudReady)budoCloud.deleteLesson(p.id).catch(()=>toast('Exclusão salva neste aparelho; sincronização pendente.'));if(oldVideoId&&!videoIsReferenced(oldVideoId)){deleteVideo(oldVideoId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldVideoId).catch(()=>{});}toast(isRegistered?'Registro excluído.':'Rascunho excluído.');};
 $('#printButton').onclick=()=>{if(!current())return;window.print();};
 $('#exportBackup').onclick=async()=>{try{toast('Preparando backup com os vídeos...');const ids=[...new Set([...store.drafts,...store.past].map(p=>p.videoFile?.id).filter(Boolean))],videoFiles=[];for(const id of ids){let blob=await getVideo(id);if(!blob&&cloudReady)blob=await budoCloud.downloadVideo(id);if(!blob)throw Error('Vídeo indisponível');videoFiles.push({id,dataUrl:await fileAsDataUrl(blob)});}const blob=new Blob([JSON.stringify({format:'budo-plans',version:3,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past,videoFiles})],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado com os vídeos.');}catch{toast('Não foi possível exportar o backup. Confira os vídeos anexados.');}};
 $('#importBackup').onclick=()=>$('#backupFile').click();
-$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[])||!Array.isArray(data.videoFiles||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;for(const item of data.videoFiles||[]){if(!item.id||typeof item.dataUrl!=='string'||!item.dataUrl.startsWith('data:video/'))throw Error('Vídeo inválido');const blob=await (await fetch(item.dataUrl)).blob();await putVideo(item.id,blob);if(cloudReady&&blob.size<=50*1024*1024)await budoCloud.uploadVideo(item.id,blob);}store={drafts:drafts.map(p=>normalizePlan(p,true)),past:(data.past||[]).map(p=>normalizePlan(p,false)),view:'draft',activeId:null,scheduledId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;syncScheduledSelection();syncPastSelection();persist();render();if(cloudReady)for(const plan of [...store.drafts,...store.past])queueCloudSave(plan);toast('Backup importado com os vídeos.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
+$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[])||!Array.isArray(data.videoFiles||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;for(const item of data.videoFiles||[]){if(!item.id||typeof item.dataUrl!=='string'||!item.dataUrl.startsWith('data:video/'))throw Error('Vídeo inválido');const blob=await (await fetch(item.dataUrl)).blob();await putVideo(item.id,blob);if(cloudReady&&blob.size<=50*1024*1024)await budoCloud.uploadVideo(item.id,blob);}store={drafts:drafts.map(p=>normalizePlan(p,true)),past:(data.past||[]).map(p=>normalizePlan(p,false)),view:'draft',activeId:null,scheduledId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;syncScheduledSelection();syncPastSelection();persist();render();if(cloudReady)for(const plan of [...store.drafts,...store.past])queueCloudSave(plan);toast('Backup importado com os vídeos.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
 function closeSidebar(){$('#sidebar').classList.remove('open');$('#scrim').classList.remove('open');}
 $('#libraryToggle').onclick=()=>{$('#sidebar').classList.add('open');$('#scrim').classList.add('open');};$('#closeSidebar').onclick=closeSidebar;$('#scrim').onclick=closeSidebar;
 $('#loginForm').onsubmit=async e=>{
