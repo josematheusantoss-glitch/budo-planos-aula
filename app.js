@@ -2,6 +2,7 @@ const KEY = 'budo-lesson-plans-v2';
 const OLD_KEY = 'budo-lesson-plans-v1';
 const CLOUD_SYNC_KEY = 'budo-cloud-last-sync-v1';
 const TARGET = 60;
+const formatLiveDuration=ms=>{const sec=Math.max(0,Math.floor((Number(ms)||0)/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec/60)%60).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
 const $ = selector => document.querySelector(selector);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -40,6 +41,7 @@ function normalizePlan(plan, isDraft = false) {
     startTime:plan.startTime||'', group:plan.group||'', theme:plan.theme||'', videoUrl:plan.videoUrl||'', videoFile:plan.videoFile?.id?{id:String(plan.videoFile.id),name:String(plan.videoFile.name||'Vídeo'),type:String(plan.videoFile.type||'video/mp4'),size:Number(plan.videoFile.size)||0,path:plan.videoFile.path||null}:null, notes:plan.notes||'',
     updatedAt:plan.updatedAt||Date.now(), isStarter:!!plan.isStarter, recordedAt:plan.recordedAt||null, scheduledAt:plan.scheduledAt||null,
     completedAt:plan.completedAt||(plan.recordedAt&&!plan.scheduledAt?plan.recordedAt:null), lastTimeEdit:plan.lastTimeEdit||null,
+    liveRun:plan.liveRun&&typeof plan.liveRun==='object'?plan.liveRun:null,
     steps:(plan.steps||[]).map(s=>({id:s.id||uid(),title:s.title||'',minutes:Math.max(0,Math.floor(Number(s.minutes)||0)),
       activity:typeof s.activity==='string'?s.activity:(s.items||[]).map(x=>x.text).filter(Boolean).join('\n'),
       ...(Array.isArray(s.subdivisions)?{subdivisions:s.subdivisions.map(x=>({id:x.id||uid(),name:x.name||'',minutes:Math.max(0,Math.floor(Number(x.minutes)||0))}))}:{}),
@@ -71,7 +73,7 @@ function monthLabel(key) {
 }
 function saoNow(){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(x=>[x.type,x.value]));return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;}
 const isDue=(plan,at=saoNow())=>/^\d{4}-\d{2}-\d{2}$/.test(plan.date||'')&&at>=`${plan.date}T19:00`;
-const isCompleted=plan=>!!plan.completedAt||isDue(plan);
+const isCompleted=plan=>!!plan.completedAt||(isDue(plan)&&!['running','paused'].includes(plan.liveRun?.status));
 const scheduledRecords=()=>store.past.filter(p=>!isCompleted(p)).sort((a,b)=>`${a.date}T${a.startTime||''}`.localeCompare(`${b.date}T${b.startTime||''}`));
 const archiveRecords=view=>view==='scheduled'?scheduledRecords():store.past.filter(isCompleted);
 const archiveStatusLabel=(view,count)=>view==='scheduled'?(count===1?'aula registrada':'aulas registradas'):(count===1?'aula concluída':'aulas concluídas');
@@ -226,7 +228,7 @@ function renderList() {
 }
 function renderDock() {
   const dock=$('#timeDock');
-  if(store.view==='past'||store.view==='scheduled'&&!archiveNav.scheduled.planId||!draft()){dock.hidden=true;return;}
+  if(store.view!=='draft'||!draft()){dock.hidden=true;return;}
   dock.hidden=false;
   const plan=draft(),total=sum(plan),remaining=TARGET-total,over=overflowStages(plan);
   const width=Math.min(100,Math.max(0,total/TARGET*100));
@@ -240,16 +242,17 @@ function render() {
   $('#newPlan').textContent='＋ Nova aula';
   $('#pageEyebrow').textContent=isPast?'AULAS CONCLUÍDAS':isScheduled?'AULAS REGISTRADAS':'MONTAR AULA';
   $('#pageTitle').textContent=plan?.className||(isPast?'Aulas concluídas':isScheduled?'Aulas registradas':'Nova aula');
-  $('#pageSubtitle').textContent=isPast?'Encontre os registros por mês e instrutor.':isScheduled?(plan?'Aula registrada. Você pode ajustar os dados até as 19h do dia da aula.':'Encontre as aulas por mês e instrutor.'):'Preencha as etapas e registre a aula ao final.';
+  $('#pageSubtitle').textContent=isPast?'Encontre os registros por mês e instrutor.':isScheduled?(plan?'Aula registrada para consulta e acompanhamento.':'Encontre as aulas por mês e instrutor.'):'Preencha as etapas e registre a aula ao final.';
   $('#duplicatePlan').textContent=isPast?'Usar como modelo':'Duplicar';
   $('#duplicatePlan').hidden=!plan;
   $('#deletePlan').hidden=!plan;
-  $('#saveStatus').textContent=isPast?(plan?'✓ Aula concluída':''):isScheduled?(plan?'✓ Alterações salvas':''):'✓ Rascunho salvo';
+  $('#saveStatus').textContent=isPast?(plan?'✓ Aula concluída':''):isScheduled?(plan?'✓ Aula registrada':''):'✓ Rascunho salvo';
   $('#printButton').hidden=!plan;
   $('#editor').innerHTML=isPast||isScheduled?renderArchive(store.view):renderDraft(plan);
   $('#editor').querySelectorAll('.step-title-input').forEach(resizeStepTitle);
   $('#editor').querySelectorAll('.activity-text, #notes').forEach(resizeWritingArea);
   loadVideoPreviews();
+  if(typeof renderLiveTimer==='function')renderLiveTimer();
 }
 let previewVersion=0,previewUrls=[];
 async function loadVideoPreviews(){
@@ -321,11 +324,11 @@ function renderArchive(view) {
     return `${crumbs}<section class="archive-browser"><div class="archive-intro"><span class="eyebrow">${escapeHtml(monthLabel(nav.month).toLocaleUpperCase('pt-BR'))}</span><h2>${escapeHtml(name)}</h2><p>${lessons.length} ${archiveStatusLabel(view,lessons.length)}</p></div><div class="archive-lessons">${lessons.map(plan=>`<button type="button" class="archive-lesson" data-archive-plan="${escapeHtml(plan.id)}"><span class="archive-lesson-date">${escapeHtml(formatDate(plan.date))}${plan.startTime?` · ${escapeHtml(plan.startTime)}`:''}</span><strong>${escapeHtml(plan.className||plan.theme||'Aula sem nome')}</strong><small>${escapeHtml(plan.theme||plan.group||'Sem tema')}</small><span class="archive-chevron" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
   }
   const plan=archivePlan(view);
-  return `${crumbs}${view==='past'?renderPast(plan):renderDraft(plan,true)}`;
+  return `${crumbs}${view==='past'?renderPast(plan):`<div id="liveLessonPanel" class="live-lesson-panel no-print"></div>${renderPast(plan,true)}`}`;
 }
-function renderPast(plan) {
+function renderPast(plan,isScheduled=false) {
   if(!plan)return `<div class="empty-state"><h2>Nenhuma aula registrada</h2><p>Quando salvar uma aula de 60 minutos, ela aparecerá aqui com todos os detalhes.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>`;
-  return `<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
+  return `<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>${isScheduled?'AULA REGISTRADA':'AULA REALIZADA'}</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.liveRun?.status==='finished'?`<div class="live-result"><strong>Tempo real: ${formatLiveDuration(plan.liveRun.totalElapsedMs)}</strong><span>Planejado: ${sum(plan)} min</span><div class="live-result-steps">${plan.steps.map((stage,index)=>`<small>${escapeHtml(stage.title)}: ${formatLiveDuration(plan.liveRun.stageActualMs?.[index]||0)} / ${stage.minutes} min previstos</small>`).join('')}</div></div>`:''}${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
 }
 function record(label,value){return `<div class="record-field"><small>${label}</small><strong>${escapeHtml(value||'—')}</strong></div>`;}
 function formatDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'';const [y,m,d]=value.split('-');return `${d}/${m}/${y}`;}
@@ -388,7 +391,7 @@ $('#editor').addEventListener('change',async e=>{
 $('#planList').addEventListener('click',e=>{const month=e.target.closest('[data-archive-month]');if(month&&store.view!=='draft'){navigateArchive('month',month.dataset.archiveMonth);closeSidebar();return;}const button=e.target.closest('[data-plan]');if(!button)return;store.activeId=button.dataset.plan;persist();render();closeSidebar();});
 $('#draftTab').onclick=()=>setView('draft');$('#scheduledTab').onclick=()=>setView('scheduled');$('#pastTab').onclick=()=>setView('past');
 $('#newPlan').onclick=()=>{const p=template(true);store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();closeSidebar();};
-$('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.scheduledAt=null;p.completedAt=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();toast('Cópia aberta para montagem.');};
+$('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.scheduledAt=null;p.completedAt=null;p.liveRun=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();toast('Cópia aberta para montagem.');};
 $('#deletePlan').onclick=()=>{const isRegistered=store.view!=='draft',p=current();if(!p||!confirm(`Excluir ${isRegistered?'este registro':'este rascunho'}?`))return;const oldVideoId=p.videoFile?.id;if(isRegistered){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=null;store.scheduledId=null;syncPastSelection();syncScheduledSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;}persist();render();if(cloudReady)budoCloud.deleteLesson(p.id).catch(()=>toast('Exclusão salva neste aparelho; sincronização pendente.'));if(oldVideoId&&!videoIsReferenced(oldVideoId)){deleteVideo(oldVideoId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldVideoId).catch(()=>{});}toast(isRegistered?'Registro excluído.':'Rascunho excluído.');};
 $('#printButton').onclick=()=>{if(!current())return;window.print();};
 $('#exportBackup').onclick=async()=>{try{toast('Preparando backup com os vídeos...');const ids=[...new Set([...store.drafts,...store.past].map(p=>p.videoFile?.id).filter(Boolean))],videoFiles=[];for(const id of ids){let blob=await getVideo(id);if(!blob&&cloudReady)blob=await budoCloud.downloadVideo(id);if(!blob)throw Error('Vídeo indisponível');videoFiles.push({id,dataUrl:await fileAsDataUrl(blob)});}const blob=new Blob([JSON.stringify({format:'budo-plans',version:3,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past,videoFiles})],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado com os vídeos.');}catch{toast('Não foi possível exportar o backup. Confira os vídeos anexados.');}};
@@ -402,9 +405,9 @@ $('#loginForm').onsubmit=async e=>{
   catch{cloudReady=false;$('#authGate').hidden=false;$('#loginError').textContent='Usuário ou senha inválidos, ou acesso ainda não liberado.';}
   finally{button.disabled=false;button.textContent='Entrar';}
 };
-$('#logoutButton').onclick=async()=>{cloudReady=false;await budoCloud.signOut();$('#authGate').hidden=false;$('#loggedInUser').textContent='';$('#loginUsername').value='';$('#loginPassword').value='';};
+$('#logoutButton').onclick=async()=>{if(typeof disableLiveAlerts==='function')await disableLiveAlerts();cloudReady=false;await budoCloud.signOut();$('#authGate').hidden=false;$('#loggedInUser').textContent='';$('#loginUsername').value='';$('#loginPassword').value='';};
 function reconcileSchedule(){
-  const due=store.past.filter(p=>p.scheduledAt&&!p.completedAt&&isDue(p));
+  const due=store.past.filter(p=>p.scheduledAt&&!p.completedAt&&isDue(p)&&!['running','paused'].includes(p.liveRun?.status));
   if(!due.length)return;
   due.forEach(p=>{p.completedAt=Date.now();p.updatedAt=Date.now();queueCloudSave(p);});
   const opened=due.find(p=>p.id===archiveNav.scheduled.planId);

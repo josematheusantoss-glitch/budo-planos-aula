@@ -142,3 +142,22 @@
 .view-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
 .view-tab{white-space:normal;line-height:1.1;min-width:0}
 @media(max-width:700px){.view-tab{font-size:10px;padding:9px 2px}.view-tab span{font-size:9px;margin-left:1px}}
+/* Acompanhamento ao vivo da aula. */
+.live-lesson-panel{margin:0 0 18px}
+.live-intro,.live-panel-head,.live-result{background:#fff;border:1px solid #e5e2df;border-radius:13px;padding:18px}
+.live-intro{display:flex;align-items:center;justify-content:space-between;gap:15px}
+.live-intro>div{display:grid;gap:5px}.live-intro strong{font-size:19px}.live-intro small,.live-panel-head small,.live-hint{font-size:11px;color:#777;line-height:1.4}
+.live-panel-head{display:flex;align-items:start;justify-content:space-between;gap:12px;border-radius:13px 13px 0 0;border-bottom:0;padding-bottom:11px}
+.live-panel-head h2{font-size:22px;margin:4px 0;overflow-wrap:anywhere}
+.live-status{flex:none;border-radius:99px;background:#edf5ef;color:#267749;padding:7px 10px;font-size:11px;font-weight:800}
+.live-status.yellow{background:#fff2cc;color:#7b5700}.live-status.red,.live-status.done{background:#fbe1e1;color:#a20e17}.live-status.paused{background:#eee;color:#555}
+.live-clock-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#fff;border-left:1px solid #e5e2df;border-right:1px solid #e5e2df;padding:8px 18px 15px}
+.live-clock-grid>div{display:grid;gap:3px}.live-clock-grid small{text-transform:uppercase;letter-spacing:.08em;color:#777;font-size:10px;font-weight:800}.live-clock-grid strong{font-variant-numeric:tabular-nums;font-size:27px;letter-spacing:-.04em}.live-clock-grid span{font-size:11px;color:#777}
+.live-progress{height:8px;background:#e6e4e2;overflow:hidden;border-left:1px solid #e5e2df;border-right:1px solid #e5e2df}.live-progress-fill{height:100%;background:#b51e26;transition:width .5s}.live-progress-fill.yellow{background:#eab308}.live-progress-fill.red,.live-progress-fill.done{background:#d6222d}
+.live-actions{display:flex;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #e5e2df;border-top:0;padding:15px 18px 5px}.live-actions .button{min-height:40px}.live-actions [disabled]{opacity:.42;cursor:not-allowed}
+.live-hint{display:block;background:#fff;border:1px solid #e5e2df;border-top:0;border-radius:0 0 13px 13px;padding:0 18px 16px}
+.live-alert-control{padding:8px 18px 0}.live-alert-button{font-size:11px;min-height:33px}.live-alert-status{display:block;color:#267749;font-size:11px;font-weight:800;padding:5px 0}.live-alert-help{display:block;margin-top:6px;color:#777;font-size:10px;line-height:1.35}
+.live-timer-dock{position:fixed;z-index:16;right:22px;bottom:18px;width:328px;border-radius:13px;background:#18181b;color:white;box-shadow:0 12px 40px #0004}.live-timer-dock[hidden]{display:none}.live-timer-dock.yellow{background:#715100}.live-timer-dock.red,.live-timer-dock.done{background:#a20e17}
+.live-dock-controls{position:absolute;top:-26px;right:0;display:flex;gap:3px}.live-dock-controls button{width:26px;height:25px;border:0;border-radius:6px 6px 0 0;background:#18181b;color:white;cursor:pointer;font-size:15px}.live-drag-handle{touch-action:none;cursor:grab!important}.live-drag-handle:active{cursor:grabbing!important}.live-timer-dock .live-dock-open{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.live-dock-open>span:nth-child(2){display:grid;gap:2px;min-width:0;flex:1}.live-timer-dock strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.live-timer-dock small{font-size:10px;color:#eee}.live-dock-total{font-size:12px;font-variant-numeric:tabular-nums;font-weight:800}.live-dot{width:9px;height:9px;border-radius:50%;background:#ff4b57;flex:none}.live-result{display:grid;gap:8px;margin-bottom:15px}.live-result strong{font-size:21px}.live-result span,.live-result small{font-size:11px;color:#666}.live-result-steps{display:grid;gap:4px;margin-top:7px}
+@media(max-width:700px){.live-intro{align-items:stretch;flex-direction:column}.live-intro .button{width:100%;min-height:45px}.live-panel-head h2{font-size:18px}.live-clock-grid strong{font-size:22px}.live-actions .button{flex:1 1 auto}.live-timer-dock{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));width:auto}}
+@media print{.live-lesson-panel,.live-timer-dock{display:none!important}.live-result{border:1px solid #ddd;break-inside:avoid}}

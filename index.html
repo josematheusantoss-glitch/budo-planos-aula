@@ -7,9 +7,13 @@
   <meta name="description" content="Planejador de aulas de jiu-jítsu Budô">
   <title>Planos de aula · Budô</title>
   <link rel="icon" href="logobudo.jpeg">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="budo-icon-192.jpg">
   <link rel="stylesheet" href="styles.css">
   <script src="cloud.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="live.js" defer></script>
 </head>
 <body>
   <div id="authGate" class="auth-gate no-print"><form id="loginForm" class="auth-card"><img src="logobudo.jpeg" alt="Budô"><span class="eyebrow">ACESSO DOS INSTRUTORES</span><h1>Planos de aula</h1><label for="loginUsername">Usuário</label><input id="loginUsername" name="username" autocomplete="username" required placeholder="Seu usuário"><label for="loginPassword">Senha</label><input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Sua senha"><p id="loginError" role="alert"></p><button class="button primary full" type="submit">Entrar</button></form></div>
@@ -32,6 +36,7 @@
     </main>
   </div>
   <div id="timeDock" class="time-dock no-print" role="status" aria-live="polite"></div>
+  <div id="liveTimerDock" class="live-timer-dock no-print" hidden></div>
   <div id="toast" class="toast no-print" role="status" aria-live="polite"></div>
 </body>
 </html>
