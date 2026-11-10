@@ -6,6 +6,15 @@ const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Mat
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const safeVideoUrl = value => {try {const url=new URL(String(value||'').trim());return ['http:','https:'].includes(url.protocol)?url.href:'';}catch{return '';}};
 const videoLink = value => {const url=safeVideoUrl(value);return url?`<a class="video-open" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Abrir vídeo ↗</a><span class="video-print print-only">${escapeHtml(url)}</span>`:'';};
+let videoDbPromise;
+function videoDb(){
+  if(!videoDbPromise)videoDbPromise=new Promise((resolve,reject)=>{const request=indexedDB.open('budo-video-files',1);request.onupgradeneeded=()=>request.result.createObjectStore('videos');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+  return videoDbPromise;
+}
+async function putVideo(id,blob){const db=await videoDb();return new Promise((resolve,reject)=>{const transaction=db.transaction('videos','readwrite');transaction.objectStore('videos').put(blob,id);transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);});}
+async function getVideo(id){const db=await videoDb();return new Promise((resolve,reject)=>{const request=db.transaction('videos').objectStore('videos').get(id);request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error);});}
+async function deleteVideo(id){const db=await videoDb();return new Promise((resolve,reject)=>{const transaction=db.transaction('videos','readwrite');transaction.objectStore('videos').delete(id);transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);});}
+const fileAsDataUrl=blob=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob);});
 const localDate = () => new Date().toLocaleDateString('en-CA');
 const localTime = () => new Date().toTimeString().slice(0,5);
 const stage = (title, minutes, activity = '', extra = {}) => ({id:uid(), title, minutes, activity, ...extra});
@@ -14,7 +23,7 @@ const exampleWarmup = ['Corrida — 2 voltas','Deslocamentos laterais','Lateral 
 function template(blank = false) {
   return {
     id:uid(), className:blank?'':'Faixas brancas · Meia guarda', instructor:'', date:localDate(), startTime:localTime(),
-    group:blank?'':'Faixas brancas', theme:blank?'':'Raspagem de meia guarda com escudo de joelho', videoUrl:'', notes:'', updatedAt:Date.now(),
+    group:blank?'':'Faixas brancas', theme:blank?'':'Raspagem de meia guarda com escudo de joelho', videoUrl:'', videoFile:null, notes:'', updatedAt:Date.now(),
     steps:[
       stage('Aquecimento geral',10,exampleWarmup), stage('Água',2), stage('Aquecimento técnico',10),
       stage('Técnica principal',27,'',{subdivisions:[{id:uid(),name:'Demonstração',minutes:5},{id:uid(),name:'Repetições',minutes:17},{id:uid(),name:'Resistência leve',minutes:5}]}),
@@ -26,7 +35,7 @@ const isFightStage=s=>/^lutas?\b/i.test(String(s.title||'').trim());
 function normalizePlan(plan, isDraft = false) {
   const normalized={
     id:plan.id||uid(), className:plan.className||plan.theme||'', instructor:plan.instructor||'', date:plan.date||localDate(),
-    startTime:plan.startTime||'', group:plan.group||'', theme:plan.theme||'', videoUrl:plan.videoUrl||'', notes:plan.notes||'',
+    startTime:plan.startTime||'', group:plan.group||'', theme:plan.theme||'', videoUrl:plan.videoUrl||'', videoFile:plan.videoFile?.id?{id:String(plan.videoFile.id),name:String(plan.videoFile.name||'Vídeo'),type:String(plan.videoFile.type||'video/mp4'),size:Number(plan.videoFile.size)||0}:null, notes:plan.notes||'',
     updatedAt:plan.updatedAt||Date.now(), recordedAt:plan.recordedAt||null, lastTimeEdit:plan.lastTimeEdit||null,
     steps:(plan.steps||[]).map(s=>({id:s.id||uid(),title:s.title||'',minutes:Math.max(0,Math.floor(Number(s.minutes)||0)),
       activity:typeof s.activity==='string'?s.activity:(s.items||[]).map(x=>x.text).filter(Boolean).join('\n'),
@@ -151,9 +160,27 @@ function render() {
   $('#editor').innerHTML=isPast?renderPast(plan):renderDraft(plan);
   $('#editor').querySelectorAll('.step-title-input').forEach(resizeStepTitle);
   $('#editor').querySelectorAll('.activity-text, #notes').forEach(resizeWritingArea);
+  loadVideoPreviews();
+}
+let previewVersion=0,previewUrls=[];
+async function loadVideoPreviews(){
+  const version=++previewVersion;
+  previewUrls.forEach(url=>URL.revokeObjectURL(url));previewUrls=[];
+  for(const node of $('#editor').querySelectorAll('video[data-video-id]')){
+    try{
+      const blob=await getVideo(node.dataset.videoId);
+      if(version!==previewVersion)return;
+      if(blob){const url=URL.createObjectURL(blob);previewUrls.push(url);node.src=url;}
+      else node.closest('.video-attachment').querySelector('.video-missing').hidden=false;
+    }catch{if(version===previewVersion)node.closest('.video-attachment').querySelector('.video-missing').hidden=false;}
+  }
 }
 function resizeStepTitle(node){node.style.height='auto';node.style.height=`${node.scrollHeight}px`;}
 function resizeWritingArea(node){node.style.height='auto';node.style.height=`${node.scrollHeight}px`;}
+function videoAttachment(file,editable=false){
+  if(!file)return '';
+  return `<div class="video-attachment"><div class="video-attachment-head"><strong>🎬 ${escapeHtml(file.name)}</strong>${editable?`<button type="button" class="small-button no-print" data-action="remove-video">Remover</button>`:''}</div><details class="video-preview no-print"><summary>Assistir vídeo</summary><video controls playsinline preload="none" data-video-id="${escapeHtml(file.id)}"></video></details><p class="video-missing no-print" hidden>Vídeo não encontrado neste navegador. Importe o backup da aula.</p></div>`;
+}
 function renderDraft(plan) {
   const total=sum(plan),remaining=TARGET-total,over=overflowStages(plan);
   const last=plan.lastTimeEdit;
@@ -171,7 +198,7 @@ function renderDraft(plan) {
       ${field('group','Turma',plan.group,'Ex.: Faixas brancas')}
       ${field('theme','Tema',plan.theme,'Tema da aula')}
     </div>
-    <div class="video-reference field"><label for="videoUrl">Vídeo de referência</label><div class="video-row"><input id="videoUrl" type="url" inputmode="url" data-field="videoUrl" value="${escapeHtml(plan.videoUrl)}" placeholder="Cole o link do vídeo"><div id="videoActions">${videoLink(plan.videoUrl)}</div></div></div>
+    <div class="video-reference field"><span class="field-label">Vídeo de referência</span><div class="video-upload-row"><label class="video-upload no-print" for="videoFileInput">＋ Anexar vídeo</label><input id="videoFileInput" type="file" accept="video/*" hidden><span class="video-upload-hint no-print">Selecione um vídeo do celular</span></div>${videoAttachment(plan.videoFile,true)}<div class="video-link-label no-print">ou cole o link</div><div class="video-row"><input id="videoUrl" aria-label="Link do vídeo de referência" type="url" inputmode="url" data-field="videoUrl" value="${escapeHtml(plan.videoUrl)}" placeholder="https://..."><div id="videoActions">${videoLink(plan.videoUrl)}</div></div></div>
     <div class="section-title"><h2>02 / ETAPAS DA AULA</h2><span class="field-label">${plan.steps.length} etapas · meta ${TARGET} min</span></div>
     <div class="stages">${plan.steps.map((s,i)=>renderStep(s,i,plan.steps.length,over)).join('')}</div>
     <button type="button" class="add-stage no-print" data-action="add-step">＋ Adicionar etapa</button>
@@ -196,7 +223,7 @@ function renderMonthCards() {
 }
 function renderPast(plan) {
   if(!plan)return `<div class="empty-state"><h2>Nenhuma aula registrada</h2><p>Quando salvar uma aula de 60 minutos, ela aparecerá aqui com todos os detalhes.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>`;
-  return `${renderMonthNavigation()}${renderMonthCards()}<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
+  return `${renderMonthNavigation()}${renderMonthCards()}<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>AULA REALIZADA</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
 }
 function record(label,value){return `<div class="record-field"><small>${label}</small><strong>${escapeHtml(value||'—')}</strong></div>`;}
 function formatDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'';const [y,m,d]=value.split('-');return `${d}/${m}/${y}`;}
@@ -205,7 +232,9 @@ function rebalanceSubdivisions(s){if(!s.subdivisions?.length)return;adjustParts(
 function changeStepTime(id,value){const n=Number(value);if(!Number.isInteger(n)||n<0){toast('Informe um tempo inteiro de 0 minuto ou mais.');render();return;}const p=draft(),s=p.steps.find(x=>x.id===id);if(isFightStage(s)){render();return;}p.lastTimeEdit={id,title:s.title,from:s.minutes,to:n};s.minutes=n;rebalanceSubdivisions(s);persist();render();}
 function changeSubTime(sid,pid,value){const n=Number(value),s=draft().steps.find(x=>x.id===sid);if(!Number.isInteger(n)||n<0||n>s.minutes){toast('A subdivisão deve caber no tempo da etapa.');render();return;}const part=s.subdivisions.find(x=>x.id===pid),others=s.subdivisions.filter(x=>x.id!==pid).map(x=>({...x}));if(!others.length&&n!==s.minutes){toast('A única subdivisão deve ter o tempo completo da etapa.');render();return;}if(others.length&&!adjustParts(others,part.minutes-n)){toast('As demais subdivisões não têm tempo suficiente.');render();return;}part.minutes=n;others.forEach(x=>s.subdivisions.find(y=>y.id===x.id).minutes=x.minutes);persist();render();}
 function move(arr,index,direction){const next=index+direction;if(next<0||next>=arr.length)return;[arr[index],arr[next]]=[arr[next],arr[index]];persist();render();}
+function videoIsReferenced(id){return [...store.drafts,...store.past].some(p=>p.videoFile?.id===id);}
 function handleAction(action,id){if(action==='show-drafts'){setView('draft');return;}const p=draft();let s=p.steps.find(x=>x.id===id);
+  if(action==='remove-video'){const oldId=p.videoFile?.id;p.videoFile=null;persist();render();if(oldId&&!videoIsReferenced(oldId))deleteVideo(oldId).catch(()=>{});return;}
   if(action==='add-step')p.steps.push(stage('Nova etapa',0));
   else if(action==='remove-step'){if(p.steps.length===1){toast('Mantenha pelo menos uma etapa.');return;}if(!confirm('Remover esta etapa?'))return;p.steps=p.steps.filter(x=>x.id!==id);}
   else if(action==='up-step'||action==='down-step'){move(p.steps,p.steps.findIndex(x=>x.id===id),action==='up-step'?-1:1);return;}
@@ -218,15 +247,30 @@ $('#editor').addEventListener('click',e=>{const month=e.target.closest('[data-mo
 $('#editor').addEventListener('input',e=>{if(store.view!=='draft')return;const t=e.target,p=draft();if(t.dataset.field!==undefined){p[t.dataset.field]=t.value;if(t.dataset.field==='className')$('#pageTitle').textContent=t.value||'Nova aula';if(t.dataset.field==='notes'){$('#editor .notes-print').textContent=t.value;resizeWritingArea(t);}if(t.dataset.field==='videoUrl')$('#videoActions').innerHTML=videoLink(t.value);persist();}else if(t.dataset.stepTitle){p.steps.find(s=>s.id===t.dataset.stepTitle).title=t.value;resizeStepTitle(t);persist();}else if(t.dataset.activity){p.steps.find(s=>s.id===t.dataset.activity).activity=t.value;t.nextElementSibling.textContent=t.value;resizeWritingArea(t);persist();}else if(t.dataset.subName){const [sid,pid]=t.dataset.subName.split(':');p.steps.find(s=>s.id===sid).subdivisions.find(x=>x.id===pid).name=t.value;persist();}else if(t.dataset.fightObservation){p.steps.find(s=>s.id===t.dataset.fightObservation).fight.observation=t.value;persist();}});
 $('#editor').addEventListener('focusout',e=>{const t=e.target;if(!t.dataset.stepTitle||store.view!=='draft')return;const s=draft().steps.find(x=>x.id===t.dataset.stepTitle);const wasFight=!!s.fight,nowFight=isFightStage(s);if(wasFight===nowFight)return;if(nowFight){s.fight={rounds:3,roundMinutes:3,observation:''};s.minutes=fightUsed(s);delete s.subdivisions;}else delete s.fight;persist();render();});
 $('#editor').addEventListener('change',e=>{if(store.view!=='draft')return;const t=e.target;if(t.dataset.stepTime)changeStepTime(t.dataset.stepTime,t.value);else if(t.dataset.subTime){const [sid,pid]=t.dataset.subTime.split(':');changeSubTime(sid,pid,t.value);}else if(t.dataset.fight){const [sid,key]=t.dataset.fight.split(':'),s=draft().steps.find(x=>x.id===sid),n=Number(t.value);if(!Number.isInteger(n)||n<1){toast('Use um número inteiro maior que zero.');render();return;}const before=s.minutes;s.fight[key]=n;s.minutes=fightUsed(s);draft().lastTimeEdit={id:s.id,title:s.title,from:before,to:s.minutes};persist();render();}});
+$('#editor').addEventListener('change',async e=>{
+  if(e.target.id!=='videoFileInput'||store.view!=='draft')return;
+  const file=e.target.files?.[0];if(!file)return;
+  if(!file.type.startsWith('video/')){toast('Selecione um arquivo de vídeo.');e.target.value='';return;}
+  const planId=draft().id,id=uid();toast('Salvando o vídeo no navegador...');
+  try{
+    await putVideo(id,file);
+    const plan=store.drafts.find(p=>p.id===planId);
+    if(!plan){await deleteVideo(id);return;}
+    const oldId=plan.videoFile?.id;
+    plan.videoFile={id,name:file.name,type:file.type,size:file.size};
+    persist();render();toast('Vídeo anexado à aula.');
+    if(oldId&&!videoIsReferenced(oldId))deleteVideo(oldId).catch(()=>{});
+  }catch{toast('Não foi possível salvar o vídeo. Verifique o espaço disponível no navegador.');e.target.value='';}
+});
 $('#planList').addEventListener('click',e=>{const button=e.target.closest('[data-plan]');if(!button)return;if(store.view==='past')store.pastId=button.dataset.plan;else store.activeId=button.dataset.plan;persist();render();closeSidebar();});
 $('#draftTab').onclick=()=>setView('draft');$('#pastTab').onclick=()=>setView('past');
 $('#newPlan').onclick=()=>{const p=template(true);store.drafts.push(p);store.activeId=p.id;store.view='draft';persist();render();closeSidebar();};
 $('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist();render();toast('Cópia aberta para montagem.');};
 $('#deletePlan').onclick=()=>{const isPast=store.view==='past',p=current();if(!p||!confirm(`Excluir ${isPast?'este registro':'este rascunho'}?`))return;if(isPast){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=null;syncPastSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;}persist();render();toast(isPast?'Registro excluído.':'Rascunho excluído.');};
 $('#printButton').onclick=()=>{if(!current())return;window.print();};
-$('#exportBackup').onclick=()=>{const blob=new Blob([JSON.stringify({format:'budo-plans',version:2,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado.');};
+$('#exportBackup').onclick=async()=>{try{toast('Preparando backup com os vídeos...');const ids=[...new Set([...store.drafts,...store.past].map(p=>p.videoFile?.id).filter(Boolean))],videoFiles=[];for(const id of ids){const blob=await getVideo(id);if(!blob)throw Error('Vídeo indisponível');videoFiles.push({id,dataUrl:await fileAsDataUrl(blob)});}const blob=new Blob([JSON.stringify({format:'budo-plans',version:3,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past,videoFiles})],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado com os vídeos.');}catch{toast('Não foi possível exportar o backup. Confira os vídeos anexados.');}};
 $('#importBackup').onclick=()=>$('#backupFile').click();
-$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;store={drafts:drafts.map(p=>normalizePlan(p,true)),past:(data.past||[]).map(p=>normalizePlan(p,false)),view:'draft',activeId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;syncPastSelection();persist();render();toast('Backup importado.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
+$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[])||!Array.isArray(data.videoFiles||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;for(const item of data.videoFiles||[]){if(!item.id||typeof item.dataUrl!=='string'||!item.dataUrl.startsWith('data:video/'))throw Error('Vídeo inválido');const blob=await (await fetch(item.dataUrl)).blob();await putVideo(item.id,blob);}store={drafts:drafts.map(p=>normalizePlan(p,true)),past:(data.past||[]).map(p=>normalizePlan(p,false)),view:'draft',activeId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[template(true)];store.activeId=store.drafts[0].id;syncPastSelection();persist();render();toast('Backup importado com os vídeos.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
 function closeSidebar(){$('#sidebar').classList.remove('open');$('#scrim').classList.remove('open');}
 $('#libraryToggle').onclick=()=>{$('#sidebar').classList.add('open');$('#scrim').classList.add('open');};$('#closeSidebar').onclick=closeSidebar;$('#scrim').onclick=closeSidebar;
 render();localStorage.setItem(KEY,JSON.stringify(store));
