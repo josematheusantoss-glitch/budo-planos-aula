@@ -119,3 +119,21 @@
 .video-missing{font-size:11px;color:#b51e26;margin:8px 0 0}
 .video-record{display:grid;justify-content:start;gap:8px}.video-record .video-attachment{border:0;padding:0;background:transparent}
 @media print{.video-attachment{border:0;padding:0}.video-attachment-head strong{font-size:8pt}.video-attachment-head button,.video-upload-row,.video-link-label{display:none!important}}
+/* Acesso compartilhado. */
+.auth-gate{position:fixed;inset:0;z-index:100;background:#111114;display:grid;place-items:center;padding:18px}
+.auth-gate[hidden]{display:none!important}
+.auth-card{display:grid;gap:10px;width:min(100%,390px);padding:26px;background:#fff;border-radius:14px;box-shadow:0 20px 60px #0005}
+.auth-card img{width:120px;height:65px;object-fit:contain;object-position:left;background:#111;border-radius:6px}
+.auth-card h1{margin:0 0 10px;font-size:27px;letter-spacing:-.04em}
+.auth-card label{font-size:11px;font-weight:800;color:#666;text-transform:uppercase;letter-spacing:.08em}
+.auth-card input{height:46px;border:1px solid #d9d7d5;border-radius:8px;padding:9px 12px;outline:0}
+.auth-card input:focus{border-color:#b51e26;box-shadow:0 0 0 3px #b51e261c}
+.auth-card p{min-height:15px;margin:0;color:#b51e26;font-size:12px}
+.auth-card .button{min-height:46px}
+.logged-in-user{font-size:11px;color:#d2d2d4;font-weight:800}
+@media(max-width:700px){.logged-in-user{display:none}.top-actions #logoutButton{min-height:35px;padding:6px 9px;font-size:11px}}
+@media print{.auth-gate,#logoutButton,.logged-in-user{display:none!important}}
+/* Três estados da aula. */
+.view-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}
+.view-tab{white-space:normal;line-height:1.1;min-width:0}
+@media(max-width:700px){.view-tab{font-size:10px;padding:9px 2px}.view-tab span{font-size:9px;margin-left:1px}}
