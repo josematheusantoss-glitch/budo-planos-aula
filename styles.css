@@ -146,6 +146,7 @@
 .live-lesson-panel{margin:0 0 18px}
 .live-intro,.live-panel-head,.live-result{background:#fff;border:1px solid #e5e2df;border-radius:13px;padding:18px}
 .live-intro{display:flex;align-items:center;justify-content:space-between;gap:15px}
+.live-intro .button:disabled{opacity:.5;cursor:default}
 .live-intro>div{display:grid;gap:5px}.live-intro strong{font-size:19px}.live-intro small,.live-panel-head small,.live-hint{font-size:11px;color:#777;line-height:1.4}
 .live-panel-head{display:flex;align-items:start;justify-content:space-between;gap:12px;border-radius:13px 13px 0 0;border-bottom:0;padding-bottom:11px}
 .live-panel-head h2{font-size:22px;margin:4px 0;overflow-wrap:anywhere}

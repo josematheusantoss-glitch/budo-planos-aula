@@ -56,7 +56,8 @@ function renderLiveTimer(){
   const run=plan.liveRun;
   if(!run){
     dock.hidden=true;
-    panel.innerHTML=`<div class="live-intro"><div><span class="eyebrow">ACOMPANHAR A AULA</span><strong>Cronômetro da aula</strong><small>Inicie quando o treino começar. A troca de etapa acontece ao seu toque.</small>${liveAlertControl()}</div><button class="button primary" data-live="start" type="button">▶ Iniciar aula</button></div>`;
+    const canStart=plan.date===saoNow().slice(0,10);
+    panel.innerHTML=`<div class="live-intro"><div><span class="eyebrow">ACOMPANHAR A AULA</span><strong>Cronômetro da aula</strong><small>${canStart?'Inicie quando o treino começar. A troca de etapa acontece ao seu toque.':`Disponível no dia da aula (${escapeHtml(formatDate(plan.date))}).`}</small>${liveAlertControl()}</div><button class="button primary" data-live="start" type="button" ${canStart?'':'disabled'}>${canStart?'▶ Iniciar aula':'Aguardar data da aula'}</button></div>`;
     return;
   }
   if(run.status==='finished'){
