@@ -1,18 +1,20 @@
 # Budô · Planos de aula
 
-Aplicação web responsiva para montar, registrar e imprimir aulas de jiu-jítsu. Funciona sem instalação e sem servidor de dados: rascunhos e aulas passadas são salvos no `localStorage` do navegador.
+Aplicação web responsiva para montar, agendar, compartilhar e imprimir aulas de jiu-jítsu. O site usa Supabase Auth, Postgres e Storage para sincronizar planos e vídeos entre instrutores autorizados. Cada alteração também é salva imediatamente no navegador e enviada ao banco em seguida.
 
-## Uso local
+## Uso
 
-Abra `index.html` em um navegador. Para servir por HTTP durante o desenvolvimento, execute `python3 -m http.server 8000` nesta pasta e visite `http://localhost:8000`.
+- Entre com o usuário e a senha fornecidos pela Budô. Todos os instrutores autorizados podem visualizar e editar as mesmas aulas.
+- Em **Montar**, preencha a aula. O rascunho é salvo automaticamente. **Salvar e registrar aula** exige 60 minutos e move o plano para **Agendadas**.
+- A aula agendada continua editável. Às **19h da data da aula**, no horário de São Paulo, ela passa automaticamente para **Concluídas**. Se ninguém estiver com o site aberto nesse horário, a mudança aparece assim que o site for aberto novamente.
+- O vídeo de referência pode ser anexado (até 50 MB no plano gratuito do Supabase) ou informado por link. O anexo é armazenado em uma área privada acessível aos instrutores autorizados.
+- **PDF:** clique em **↗ PDF** e escolha **Salvar como PDF** na janela de impressão do navegador. A página usa o formato A4.
+- **Backup:** exporte um JSON para guardar uma cópia de todos os planos e vídeos. A importação substitui a biblioteca local e sincroniza os planos com o banco.
 
-- **Montar aula:** escreva as atividades livremente em cada etapa e ajuste os tempos até somarem 60 minutos. A barra flutuante mostra o tempo disponível ou excedente. O rascunho é salvo automaticamente.
-- **Registrar:** preencha identificação e horário, confira a soma final e clique em **Salvar e registrar aula**. O registro completo vai para **Aulas passadas**, organizado em abas por mês e ano da data da aula. Cada registro destaca o instrutor/monitor, a data e o tema.
-- **PDF A4:** clique em **Exportar PDF** e escolha **Salvar como PDF** na janela de impressão do navegador. A folha usa o formato A4.
-- **Backup:** use **Exportar backup** para baixar um JSON e **Importar backup** para restaurá-lo em outro navegador. A importação substitui a biblioteca local.
+## Novos instrutores
 
-## Publicação futura
+Crie o usuário em **Supabase → Authentication → Users → Add user → Create new user**, com e-mail no formato `usuario@budo-planos.internal` e **Auto confirm user** ativado. Depois, adicione o UUID criado à tabela `public.instructors` com o nome de usuário correspondente. Apenas usuários presentes nessa tabela, com `active = true`, podem ler ou editar aulas e vídeos. Nunca coloque senhas no repositório.
 
-O projeto está publicado no GitHub e na Vercel como site estático, sem etapa de build. O armazenamento continua local a cada navegador; não há sincronização entre aparelhos sem um serviço de dados.
+## Arquivos
 
-Arquivos: `index.html`, `styles.css`, `app.js` e `logobudo.jpeg`.
+O site estático é publicado pela Vercel a partir do GitHub. Código: `index.html`, `styles.css`, `app.js`, `cloud.js`, `logobudo.jpeg`. A estrutura e as políticas do banco estão em `supabase/migrations`.
