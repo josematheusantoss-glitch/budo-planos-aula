@@ -8,20 +8,22 @@
   <title>Planos de aula · Budô</title>
   <link rel="icon" href="logobudo.jpeg">
   <link rel="stylesheet" href="styles.css">
+  <script src="cloud.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
+  <div id="authGate" class="auth-gate no-print"><form id="loginForm" class="auth-card"><img src="logobudo.jpeg" alt="Budô"><span class="eyebrow">ACESSO DOS INSTRUTORES</span><h1>Planos de aula</h1><label for="loginUsername">Usuário</label><input id="loginUsername" name="username" autocomplete="username" required placeholder="Seu usuário"><label for="loginPassword">Senha</label><input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Sua senha"><p id="loginError" role="alert"></p><button class="button primary full" type="submit">Entrar</button></form></div>
   <header class="topbar no-print">
     <div class="brand"><img src="logobudo.jpeg" alt="Budô"><div><strong>PLANO DE AULA</strong><span>JIU-JÍTSU · BUDÔ</span></div></div>
-    <div class="top-actions"><button id="libraryToggle" class="button ghost mobile-only" type="button">☰ Aulas</button><button id="printButton" class="button primary" type="button">↗ PDF</button></div>
+    <div class="top-actions"><span id="loggedInUser" class="logged-in-user"></span><button id="logoutButton" class="button ghost" type="button">Sair</button><button id="libraryToggle" class="button ghost mobile-only" type="button">☰ Aulas</button><button id="printButton" class="button primary" type="button">↗ PDF</button></div>
   </header>
   <div class="app-shell">
     <aside class="sidebar no-print" id="sidebar" aria-label="Aulas">
-      <div class="sidebar-head"><div><span class="eyebrow">BUDÔ</span><h2>Minhas aulas</h2></div><button id="closeSidebar" class="icon-button mobile-only" aria-label="Fechar aulas" type="button">×</button></div>
-      <div class="view-tabs" role="tablist" aria-label="Tipo de aula"><button id="draftTab" class="view-tab active" type="button" role="tab">Montar aula</button><button id="pastTab" class="view-tab" type="button" role="tab">Aulas passadas <span id="pastCount">0</span></button></div>
+      <div class="sidebar-head"><div><span class="eyebrow">BUDÔ</span><h2>Aulas Budô</h2></div><button id="closeSidebar" class="icon-button mobile-only" aria-label="Fechar aulas" type="button">×</button></div>
+      <div class="view-tabs" role="tablist" aria-label="Tipo de aula"><button id="draftTab" class="view-tab active" type="button" role="tab">Montar</button><button id="scheduledTab" class="view-tab" type="button" role="tab">Agendadas <span id="scheduledCount">0</span></button><button id="pastTab" class="view-tab" type="button" role="tab">Concluídas <span id="pastCount">0</span></button></div>
       <button id="newPlan" class="button primary full" type="button">＋ Nova aula</button>
       <div id="planList" class="plan-list"></div>
-      <div class="sidebar-foot"><button id="exportBackup" class="button subtle full" type="button">↓ Exportar backup</button><button id="importBackup" class="button subtle full" type="button">↑ Importar backup</button><input id="backupFile" type="file" accept="application/json,.json" hidden><p>Salvo neste navegador. Exporte um backup para usar em outro aparelho.</p></div>
+      <div class="sidebar-foot"><button id="exportBackup" class="button subtle full" type="button">↓ Exportar backup</button><button id="importBackup" class="button subtle full" type="button">↑ Importar backup</button><input id="backupFile" type="file" accept="application/json,.json" hidden><p>Aulas sincronizadas entre instrutores. O backup guarda uma cópia extra.</p></div>
     </aside>
     <div id="scrim" class="scrim no-print"></div>
     <main class="main">
