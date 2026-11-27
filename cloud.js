@@ -51,10 +51,10 @@ const budoCloud = (() => {
   async function listLessons() {return request('/rest/v1/lessons?select=id,plan,updated_at&order=updated_at.desc');}
   async function saveLesson(plan) {return request('/rest/v1/lessons?on_conflict=id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({id:plan.id,plan,updated_at:new Date(plan.updatedAt||Date.now()).toISOString(),updated_by:identity()})});}
   async function deleteLesson(id) {return request(`/rest/v1/lessons?id=eq.${encodeURIComponent(id)}`,{method:'DELETE'});}
-  async function savePushSubscription(subscription) {const endpoint=subscription.endpoint;return request('/rest/v1/push_subscriptions?on_conflict=endpoint',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({user_id:identity(),endpoint,subscription})});}
-  async function deletePushSubscription(endpoint) {return request(`/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`,{method:'DELETE'});}
+  async function listReflections() {return request('/rest/v1/lesson_reflections?select=lesson_id,worked,adjust,updated_at');}
+  async function saveReflection(id, reflection) {return request('/rest/v1/lesson_reflections?on_conflict=lesson_id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({lesson_id:id,worked:reflection.worked||'',adjust:reflection.adjust||'',updated_at:new Date(reflection.updatedAt).toISOString(),updated_by:identity()})});}
   async function uploadVideo(id,file) {return request(`/storage/v1/object/lesson-videos/${encodeURIComponent(id)}`,{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','x-upsert':'true'},body:file});}
   async function downloadVideo(id) {return request(`/storage/v1/object/authenticated/lesson-videos/${encodeURIComponent(id)}`);}
   async function deleteVideo(id) {return request('/storage/v1/object/lesson-videos',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({prefixes:[id]})});}
-  return {identity,username,restore,signIn,signOut,listLessons,saveLesson,deleteLesson,savePushSubscription,deletePushSubscription,uploadVideo,downloadVideo,deleteVideo};
+  return {identity,username,restore,signIn,signOut,listLessons,saveLesson,deleteLesson,listReflections,saveReflection,uploadVideo,downloadVideo,deleteVideo};
 })();
