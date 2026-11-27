@@ -2,7 +2,6 @@ const KEY = 'budo-lesson-plans-v2';
 const OLD_KEY = 'budo-lesson-plans-v1';
 const CLOUD_SYNC_KEY = 'budo-cloud-last-sync-v1';
 const TARGET = 60;
-const formatLiveDuration=ms=>{const sec=Math.max(0,Math.floor((Number(ms)||0)/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec/60)%60).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
 const $ = selector => document.querySelector(selector);
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -41,7 +40,6 @@ function normalizePlan(plan, isDraft = false) {
     startTime:plan.startTime||'', group:plan.group||'', theme:plan.theme||'', videoUrl:plan.videoUrl||'', videoFile:plan.videoFile?.id?{id:String(plan.videoFile.id),name:String(plan.videoFile.name||'Vídeo'),type:String(plan.videoFile.type||'video/mp4'),size:Number(plan.videoFile.size)||0,path:plan.videoFile.path||null}:null, notes:plan.notes||'',
     updatedAt:plan.updatedAt||Date.now(), isStarter:!!plan.isStarter, recordedAt:plan.recordedAt||null, scheduledAt:plan.scheduledAt||null,
     completedAt:plan.completedAt||(plan.recordedAt&&!plan.scheduledAt?plan.recordedAt:null), lastTimeEdit:plan.lastTimeEdit||null,
-    liveRun:plan.liveRun&&typeof plan.liveRun==='object'?plan.liveRun:null,
     steps:(plan.steps||[]).map(s=>({id:s.id||uid(),title:s.title||'',minutes:Math.max(0,Math.floor(Number(s.minutes)||0)),
       activity:typeof s.activity==='string'?s.activity:(s.items||[]).map(x=>x.text).filter(Boolean).join('\n'),
       ...(Array.isArray(s.subdivisions)?{subdivisions:s.subdivisions.map(x=>({id:x.id||uid(),name:x.name||'',minutes:Math.max(0,Math.floor(Number(x.minutes)||0))}))}:{}),
@@ -73,7 +71,8 @@ function monthLabel(key) {
 }
 function saoNow(){const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(x=>[x.type,x.value]));return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;}
 const isDue=(plan,at=saoNow())=>/^\d{4}-\d{2}-\d{2}$/.test(plan.date||'')&&at>=`${plan.date}T19:00`;
-const isCompleted=plan=>!!plan.completedAt||(isDue(plan)&&!['running','paused'].includes(plan.liveRun?.status));
+const isCompleted=plan=>!!plan.completedAt||isDue(plan);
+const todayRecords=()=>store.past.filter(p=>p.date===saoNow().slice(0,10)).sort((a,b)=>(a.startTime||'').localeCompare(b.startTime||''));
 const scheduledRecords=()=>store.past.filter(p=>!isCompleted(p)).sort((a,b)=>`${a.date}T${a.startTime||''}`.localeCompare(`${b.date}T${b.startTime||''}`));
 const archiveRecords=view=>view==='scheduled'?scheduledRecords():store.past.filter(isCompleted);
 const archiveStatusLabel=(view,count)=>view==='scheduled'?(count===1?'aula registrada':'aulas registradas'):(count===1?'aula concluída':'aulas concluídas');
@@ -111,7 +110,8 @@ function readStore() {
     if(saved && Array.isArray(saved.drafts) && Array.isArray(saved.past)) {
       saved.drafts=saved.drafts.map(p=>normalizePlan(p,true)); saved.past=saved.past.map(p=>normalizePlan(p,false));
       if(!saved.drafts.length) saved.drafts=[emptyDraft()];
-      saved.view=['draft','scheduled','past'].includes(saved.view)?saved.view:'draft';
+      saved.view=['draft','scheduled','past','today'].includes(saved.view)?saved.view:'draft';
+      saved.reflections=saved.reflections&&typeof saved.reflections==='object'?saved.reflections:{};
       saved.scheduledId=saved.scheduledId||null;
       saved.activeId=saved.drafts.some(p=>p.id===saved.activeId)?saved.activeId:saved.drafts[0].id;
       saved.pastId=saved.past.some(p=>p.id===saved.pastId)?saved.pastId:(saved.past[0]?.id||null);
@@ -122,11 +122,11 @@ function readStore() {
     const old=JSON.parse(localStorage.getItem(OLD_KEY));
     if(Array.isArray(old?.plans) && old.plans.length) {
       const drafts=old.plans.map(p=>normalizePlan(p,true));
-      return {drafts,past:[],activeId:drafts.some(p=>p.id===old.activeId)?old.activeId:drafts[0].id,scheduledId:null,pastId:null,pastMonth:null,view:'draft'};
+      return {drafts,past:[],reflections:{},activeId:drafts.some(p=>p.id===old.activeId)?old.activeId:drafts[0].id,scheduledId:null,pastId:null,pastMonth:null,view:'draft'};
     }
   } catch {}
   const first=template();
-  return {drafts:[first],past:[],activeId:first.id,scheduledId:null,pastId:null,pastMonth:null,view:'draft'};
+  return {drafts:[first],past:[],reflections:{},activeId:first.id,scheduledId:null,pastId:null,pastMonth:null,view:'draft'};
 }
 let store=readStore();
 syncPastSelection();
@@ -142,6 +142,28 @@ function reconcileArchiveNav(view){
 let toastTimer;
 let cloudReady=false;
 const cloudTimers=new Map(),cloudDirty=new Set();
+const reflectionTimers=new Map(),reflectionDirty=new Set();
+function queueReflectionSave(id){
+  if(!cloudReady||!store.reflections[id])return;
+  reflectionDirty.add(id);
+  clearTimeout(reflectionTimers.get(id));
+  reflectionTimers.set(id,setTimeout(async()=>{
+    const snapshot={...store.reflections[id]};
+    try{await budoCloud.saveReflection(id,snapshot);if(store.reflections[id]?.updatedAt===snapshot.updatedAt)reflectionDirty.delete(id);else queueReflectionSave(id);}
+    catch{toast('Relato salvo neste aparelho. A sincronização será tentada novamente.');}
+  },650));
+}
+async function syncReflections(){
+  const remote=await budoCloud.listReflections();
+  const remoteIds=new Set();
+  for(const row of remote){
+    remoteIds.add(row.lesson_id);
+    const local=store.reflections[row.lesson_id],time=Date.parse(row.updated_at)||0;
+    if(!local||(!reflectionDirty.has(row.lesson_id)&&time>local.updatedAt))store.reflections[row.lesson_id]={worked:row.worked||'',adjust:row.adjust||'',updatedAt:time};
+    else if(local.updatedAt>time)reflectionDirty.add(row.lesson_id);
+  }
+  for(const [id,reflection] of Object.entries(store.reflections))if(store.past.some(p=>p.id===id)&&(!remoteIds.has(id)||reflectionDirty.has(id)))queueReflectionSave(id);
+}
 function queueCloudSave(plan){
   if(!cloudReady||!plan)return;
   cloudDirty.add(plan.id);
@@ -156,6 +178,7 @@ function queueCloudSave(plan){
 async function syncCloud(){
   if(!cloudReady)return;
   const remote=await budoCloud.listLessons();
+  await syncReflections();
   const previousSync=Number(localStorage.getItem(CLOUD_SYNC_KEY)||0);
   const local=[...store.drafts,...store.past],merged=new Map(remote.map(row=>[row.id,normalizePlan(row.plan,!row.plan.recordedAt)]));
   const upload=[];
@@ -190,7 +213,7 @@ async function connectCloud(){
 const draft=()=>store.view==='scheduled'?store.past.find(p=>p.id===store.scheduledId):store.drafts.find(p=>p.id===store.activeId)||store.drafts[0];
 const scheduled=()=>scheduledRecords().find(p=>p.id===store.scheduledId)||scheduledRecords()[0];
 const past=()=>monthRecords(store.pastMonth).find(p=>p.id===store.pastId)||monthRecords(store.pastMonth)[0];
-const current=()=>store.view==='past'||store.view==='scheduled'?archivePlan(store.view):draft();
+const current=()=>store.view==='past'||store.view==='scheduled'?archivePlan(store.view):store.view==='today'?null:draft();
 const sum=p=>p.steps.reduce((n,s)=>n+s.minutes,0);
 const fightUsed=s=>s.fight?s.fight.rounds*s.fight.roundMinutes:0;
 function overflowStages(plan) {
@@ -208,8 +231,11 @@ function toast(message) {
   const node=$('#toast');node.textContent=message;node.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove('show'),4300);
 }
-function setView(view) {store.view=view;if(view!=='draft')archiveNav[view]={month:null,instructor:null,planId:null};persist();render();closeSidebar();}
+function setView(view) {store.view=view;if(view==='scheduled'||view==='past')archiveNav[view]={month:null,instructor:null,planId:null};persist();render();closeSidebar();}
 function renderList() {
+  $('#todayTab').classList.toggle('active',store.view==='today');
+  $('#todayTab').setAttribute('aria-selected',String(store.view==='today'));
+  $('#todayCount').textContent=todayRecords().length;
   $('#draftTab').classList.toggle('active',store.view==='draft');
   $('#scheduledTab').classList.toggle('active',store.view==='scheduled');
   $('#pastTab').classList.toggle('active',store.view==='past');
@@ -218,6 +244,10 @@ function renderList() {
   $('#pastTab').setAttribute('aria-selected',String(store.view==='past'));
   $('#scheduledCount').textContent=scheduledRecords().length;
   $('#pastCount').textContent=store.past.filter(isCompleted).length;
+  if(store.view==='today'){
+    $('#planList').innerHTML=todayRecords().map(p=>`<button type="button" class="plan-link" data-today-plan="${escapeHtml(p.id)}"><strong>${escapeHtml(p.startTime||'Sem horário')} · ${escapeHtml(p.instructor||'Sem instrutor')}</strong><small>${escapeHtml(p.className||p.theme||'Aula sem nome')}</small></button>`).join('')||'<p class="empty-list">Nenhuma aula para hoje.</p>';
+    return;
+  }
   if(store.view!=='draft'){
     const view=store.view,selected=archiveNav[view].month;
     $('#planList').innerHTML=archiveMonths(view).map(month=>`<button type="button" class="plan-link ${month===selected?'active':''}" data-archive-month="${month}"><strong>${escapeHtml(monthLabel(month))}</strong><small>${archiveMonthRecords(view,month).length} ${archiveMonthRecords(view,month).length===1?'aula':'aulas'}</small></button>`).join('')||`<p class="empty-list">Nenhuma aula ${view==='scheduled'?'registrada':'concluída'} ainda.</p>`;
@@ -236,23 +266,34 @@ function renderDock() {
   dock.innerHTML=`<div class="dock-top"><strong>${remaining>0?`${remaining} min disponíveis`:remaining===0?'60 min fechados':`${-remaining} min acima`}</strong><span>${total} / ${TARGET} min</span></div><div class="dock-track"><div class="dock-fill ${remaining<0?'over':''}" style="width:${width}%"></div></div><small>${remaining<0?(last&&last.to>last.from?`Último aumento: ${escapeHtml(last.title)} (+${last.to-last.from} min)`:`Excesso a partir de: ${escapeHtml(over[0]?.title||'etapa')}`):remaining===0?'Pronto para registrar':'Distribua o tempo restante entre as etapas'}</small>`;
 }
 function render() {
-  if(store.view!=='draft')reconcileArchiveNav(store.view);
+  if(store.view==='scheduled'||store.view==='past')reconcileArchiveNav(store.view);
   renderList();renderDock();
-  const isPast=store.view==='past',isScheduled=store.view==='scheduled',plan=current();
+  const isPast=store.view==='past',isScheduled=store.view==='scheduled',isToday=store.view==='today',plan=current();
   $('#newPlan').textContent='＋ Nova aula';
-  $('#pageEyebrow').textContent=isPast?'AULAS CONCLUÍDAS':isScheduled?'AULAS REGISTRADAS':'MONTAR AULA';
-  $('#pageTitle').textContent=plan?.className||(isPast?'Aulas concluídas':isScheduled?'Aulas registradas':'Nova aula');
-  $('#pageSubtitle').textContent=isPast?'Encontre os registros por mês e instrutor.':isScheduled?(plan?'Aula registrada para consulta e acompanhamento.':'Encontre as aulas por mês e instrutor.'):'Preencha as etapas e registre a aula ao final.';
+  $('#pageEyebrow').textContent=isToday?'ACESSO RÁPIDO':isPast?'AULAS CONCLUÍDAS':isScheduled?'AULAS REGISTRADAS':'MONTAR AULA';
+  $('#pageTitle').textContent=isToday?'Aulas de hoje':plan?.className||(isPast?'Aulas concluídas':isScheduled?'Aulas registradas':'Nova aula');
+  $('#pageSubtitle').textContent=isToday?'Abra o plano completo com um toque.':isPast?'Encontre os registros por mês e instrutor.':isScheduled?(plan?'Aula registrada para consulta.':'Encontre as aulas por mês e instrutor.'):'Preencha as etapas e registre a aula ao final.';
   $('#duplicatePlan').textContent=isPast?'Usar como modelo':'Duplicar';
   $('#duplicatePlan').hidden=!plan;
   $('#deletePlan').hidden=!plan;
-  $('#saveStatus').textContent=isPast?(plan?'✓ Aula concluída':''):isScheduled?(plan?'✓ Aula registrada':''):'✓ Rascunho salvo';
+  $('#saveStatus').textContent=isToday?'':isPast?(plan?'✓ Aula concluída':''):isScheduled?(plan?'✓ Aula registrada':''):'✓ Rascunho salvo';
   $('#printButton').hidden=!plan;
-  $('#editor').innerHTML=isPast||isScheduled?renderArchive(store.view):renderDraft(plan);
+  $('#editor').innerHTML=isToday?renderToday():isPast||isScheduled?renderArchive(store.view):renderDraft(plan);
   $('#editor').querySelectorAll('.step-title-input').forEach(resizeStepTitle);
-  $('#editor').querySelectorAll('.activity-text, #notes').forEach(resizeWritingArea);
+  $('#editor').querySelectorAll('.activity-text, #notes, .reflection-text').forEach(resizeWritingArea);
   loadVideoPreviews();
-  if(typeof renderLiveTimer==='function')renderLiveTimer();
+}
+function openTodayPlan(id){
+  const plan=store.past.find(p=>p.id===id);if(!plan)return;
+  const view=isCompleted(plan)?'past':'scheduled';
+  store.view=view;archiveNav[view]={month:monthKey(plan),instructor:instructorKey(plan),planId:id};
+  if(view==='past')store.pastId=id;else store.scheduledId=id;
+  persist();render();closeSidebar();window.scrollTo({top:0,behavior:'smooth'});
+}
+function renderToday(){
+  const records=todayRecords();
+  if(!records.length)return '<div class="empty-state"><h2>Nenhuma aula hoje</h2><p>As aulas marcadas para hoje aparecerão aqui.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>';
+  return `<section class="archive-browser today-browser"><div class="archive-intro"><span class="eyebrow">${escapeHtml(formatDate(saoNow().slice(0,10)))}</span><h2>Planos do dia</h2><p>${records.length} ${records.length===1?'aula':'aulas'}</p></div><div class="archive-lessons">${records.map(p=>`<button type="button" class="archive-lesson today-lesson" data-today-plan="${escapeHtml(p.id)}"><span class="archive-lesson-date">${escapeHtml(p.startTime||'Sem horário')} · ${isCompleted(p)?'Concluída':'Registrada'}</span><strong>${escapeHtml(instructorName(p))}</strong><small>${escapeHtml(p.className||p.theme||'Aula sem nome')} · ${escapeHtml(p.group||'Sem turma')}</small><span class="archive-chevron" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
 }
 let previewVersion=0,previewUrls=[];
 async function loadVideoPreviews(){
@@ -324,11 +365,16 @@ function renderArchive(view) {
     return `${crumbs}<section class="archive-browser"><div class="archive-intro"><span class="eyebrow">${escapeHtml(monthLabel(nav.month).toLocaleUpperCase('pt-BR'))}</span><h2>${escapeHtml(name)}</h2><p>${lessons.length} ${archiveStatusLabel(view,lessons.length)}</p></div><div class="archive-lessons">${lessons.map(plan=>`<button type="button" class="archive-lesson" data-archive-plan="${escapeHtml(plan.id)}"><span class="archive-lesson-date">${escapeHtml(formatDate(plan.date))}${plan.startTime?` · ${escapeHtml(plan.startTime)}`:''}</span><strong>${escapeHtml(plan.className||plan.theme||'Aula sem nome')}</strong><small>${escapeHtml(plan.theme||plan.group||'Sem tema')}</small><span class="archive-chevron" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
   }
   const plan=archivePlan(view);
-  return `${crumbs}${view==='past'?renderPast(plan):`<div id="liveLessonPanel" class="live-lesson-panel no-print"></div>${renderPast(plan,true)}`}`;
+  return `${crumbs}${renderPast(plan,view==='scheduled')}`;
+}
+function renderReflection(plan){
+  if(plan.date>saoNow().slice(0,10))return '';
+  const reflection=store.reflections[plan.id]||{worked:'',adjust:''};
+  return `<section class="reflection-section"><div class="section-title"><h2>APÓS A AULA</h2></div><p class="reflection-hint no-print">Relato separado do plano registrado. Salvo automaticamente.</p><div class="reflection-fields"><div class="field"><label for="reflection-worked">O que funcionou?</label><textarea id="reflection-worked" class="reflection-text" data-reflection="worked" data-lesson-id="${escapeHtml(plan.id)}" placeholder="Anote o que deu certo">${escapeHtml(reflection.worked)}</textarea><div class="reflection-print print-only">${escapeHtml(reflection.worked||'—')}</div></div><div class="field"><label for="reflection-adjust">O que ajustar?</label><textarea id="reflection-adjust" class="reflection-text" data-reflection="adjust" data-lesson-id="${escapeHtml(plan.id)}" placeholder="Anote ajustes para a próxima aula">${escapeHtml(reflection.adjust)}</textarea><div class="reflection-print print-only">${escapeHtml(reflection.adjust||'—')}</div></div></div></section>`;
 }
 function renderPast(plan,isScheduled=false) {
   if(!plan)return `<div class="empty-state"><h2>Nenhuma aula registrada</h2><p>Quando salvar uma aula de 60 minutos, ela aparecerá aqui com todos os detalhes.</p><button class="button primary" type="button" data-action="show-drafts">Montar aula</button></div>`;
-  return `<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>${isScheduled?'AULA REGISTRADA':'AULA REALIZADA'}</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.liveRun?.status==='finished'?`<div class="live-result"><strong>Tempo real: ${formatLiveDuration(plan.liveRun.totalElapsedMs)}</strong><span>Planejado: ${sum(plan)} min</span><div class="live-result-steps">${plan.steps.map((stage,index)=>`<small>${escapeHtml(stage.title)}: ${formatLiveDuration(plan.liveRun.stageActualMs?.[index]||0)} / ${stage.minutes} min previstos</small>`).join('')}</div></div>`:''}${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div><p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
+  return `<article class="sheet past-sheet"><div class="sheet-header"><img class="sheet-logo" src="logobudo.jpeg" alt="Logo Budô"><div class="sheet-kicker">JIU-JÍTSU · REGISTRO<strong>${isScheduled?'AULA REGISTRADA':'AULA REALIZADA'}</strong></div></div><div class="sheet-body"><div class="section-title"><h2>IDENTIFICAÇÃO</h2></div><div class="record-grid">${record('Nome da aula',plan.className)}${record('Instrutor / monitor',plan.instructor)}${record('Data',formatDate(plan.date))}${record('Horário',plan.startTime)}${record('Turma',plan.group)}${record('Tema',plan.theme)}</div>${plan.videoFile||safeVideoUrl(plan.videoUrl)?`<div class="video-reference video-record"><span class="field-label">VÍDEO DE REFERÊNCIA</span>${videoAttachment(plan.videoFile)}${videoLink(plan.videoUrl)}</div>`:''}<div class="section-title"><h2>ETAPAS · ${sum(plan)} MIN</h2></div><div class="stages">${plan.steps.map((s,i)=>`<section class="step-card"><div class="step-head"><span class="step-number">${String(i+1).padStart(2,'0')}</span><strong class="record-step-title">${escapeHtml(s.title)}</strong><strong>${s.minutes} min</strong></div><div class="step-body">${s.activity?`<div class="record-activity">${escapeHtml(s.activity)}</div>`:''}${s.subdivisions?.length?`<div class="record-sub">${s.subdivisions.map(x=>`${escapeHtml(x.name)}: ${x.minutes} min`).join(' · ')}</div>`:''}${s.fight?`<div class="record-sub">${s.fight.rounds} ${s.fight.rounds===1?'luta':'lutas'} de ${s.fight.roundMinutes} ${s.fight.roundMinutes===1?'minuto':'minutos'}${s.fight.observation?` · ${escapeHtml(s.fight.observation)}`:''}</div>`:''}</div></section>`).join('')}</div><div class="notes-section"><div class="section-title"><h2>OBSERVAÇÕES</h2></div><div class="record-activity">${escapeHtml(plan.notes||'—')}</div></div>${renderReflection(plan)}<p class="recorded-at">Registrada em ${escapeHtml(new Date(plan.recordedAt||plan.updatedAt).toLocaleString('pt-BR'))}</p></div></article>`;
 }
 function record(label,value){return `<div class="record-field"><small>${label}</small><strong>${escapeHtml(value||'—')}</strong></div>`;}
 function formatDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return value||'';const [y,m,d]=value.split('-');return `${d}/${m}/${y}`;}
@@ -359,6 +405,7 @@ function navigateArchive(target,value){
   persist();render();window.scrollTo({top:0,behavior:'smooth'});
 }
 $('#editor').addEventListener('click',e=>{
+  const today=e.target.closest('[data-today-plan]');if(today){openTodayPlan(today.dataset.todayPlan);return;}
   if(store.view!=='draft'){
     const month=e.target.closest('[data-archive-month]');if(month){navigateArchive('month',month.dataset.archiveMonth);return;}
     const instructor=e.target.closest('[data-archive-instructor]');if(instructor){navigateArchive('instructor',instructor.dataset.archiveInstructor);return;}
@@ -368,7 +415,7 @@ $('#editor').addEventListener('click',e=>{
   const action=e.target.closest('[data-action]');if(action)handleAction(action.dataset.action,action.dataset.id);
   if(e.target.closest('#registerClass'))registerClass();
 });
-$('#editor').addEventListener('input',e=>{if(store.view==='past')return;const t=e.target,p=draft();if(t.dataset.field!==undefined){p[t.dataset.field]=t.value;if(t.dataset.field==='className')$('#pageTitle').textContent=t.value||'Nova aula';if(t.dataset.field==='notes'){$('#editor .notes-print').textContent=t.value;resizeWritingArea(t);}if(t.dataset.field==='videoUrl')$('#videoActions').innerHTML=videoLink(t.value);persist(true);}else if(t.dataset.stepTitle){p.steps.find(s=>s.id===t.dataset.stepTitle).title=t.value;resizeStepTitle(t);persist(true);}else if(t.dataset.activity){p.steps.find(s=>s.id===t.dataset.activity).activity=t.value;t.nextElementSibling.textContent=t.value;resizeWritingArea(t);persist(true);}else if(t.dataset.subName){const [sid,pid]=t.dataset.subName.split(':');p.steps.find(s=>s.id===sid).subdivisions.find(x=>x.id===pid).name=t.value;persist(true);}else if(t.dataset.fightObservation){p.steps.find(s=>s.id===t.dataset.fightObservation).fight.observation=t.value;persist(true);}});
+$('#editor').addEventListener('input',e=>{const t=e.target;if(t.dataset.reflection){const id=t.dataset.lessonId;if(!store.past.some(p=>p.id===id))return;const reflection=store.reflections[id]||{worked:'',adjust:'',updatedAt:0};reflection[t.dataset.reflection]=t.value;reflection.updatedAt=Date.now();store.reflections[id]=reflection;t.nextElementSibling.textContent=t.value||'—';resizeWritingArea(t);localStorage.setItem(KEY,JSON.stringify(store));queueReflectionSave(id);$('#saveStatus').textContent='✓ Relato salvo';return;}if(store.view!=='draft')return;const p=draft();if(t.dataset.field!==undefined){p[t.dataset.field]=t.value;if(t.dataset.field==='className')$('#pageTitle').textContent=t.value||'Nova aula';if(t.dataset.field==='notes'){$('#editor .notes-print').textContent=t.value;resizeWritingArea(t);}if(t.dataset.field==='videoUrl')$('#videoActions').innerHTML=videoLink(t.value);persist(true);}else if(t.dataset.stepTitle){p.steps.find(s=>s.id===t.dataset.stepTitle).title=t.value;resizeStepTitle(t);persist(true);}else if(t.dataset.activity){p.steps.find(s=>s.id===t.dataset.activity).activity=t.value;t.nextElementSibling.textContent=t.value;resizeWritingArea(t);persist(true);}else if(t.dataset.subName){const [sid,pid]=t.dataset.subName.split(':');p.steps.find(s=>s.id===sid).subdivisions.find(x=>x.id===pid).name=t.value;persist(true);}else if(t.dataset.fightObservation){p.steps.find(s=>s.id===t.dataset.fightObservation).fight.observation=t.value;persist(true);}});
 $('#editor').addEventListener('focusout',e=>{const t=e.target;if(!t.dataset.stepTitle||store.view==='past')return;const s=draft().steps.find(x=>x.id===t.dataset.stepTitle);const wasFight=!!s.fight,nowFight=isFightStage(s);if(wasFight===nowFight)return;if(nowFight){s.fight={rounds:3,roundMinutes:3,observation:''};s.minutes=fightUsed(s);delete s.subdivisions;}else delete s.fight;persist(true);render();});
 $('#editor').addEventListener('change',e=>{if(store.view==='past')return;const t=e.target;if(t.dataset.field==='date'&&store.view==='scheduled'){reconcileSchedule();return;}if(t.dataset.stepTime)changeStepTime(t.dataset.stepTime,t.value);else if(t.dataset.subTime){const [sid,pid]=t.dataset.subTime.split(':');changeSubTime(sid,pid,t.value);}else if(t.dataset.fight){const [sid,key]=t.dataset.fight.split(':'),s=draft().steps.find(x=>x.id===sid),n=Number(t.value);if(!Number.isInteger(n)||n<1){toast('Use um número inteiro maior que zero.');render();return;}const before=s.minutes;s.fight[key]=n;s.minutes=fightUsed(s);draft().lastTimeEdit={id:s.id,title:s.title,from:before,to:s.minutes};persist(true);render();}});
 $('#editor').addEventListener('change',async e=>{
@@ -388,15 +435,15 @@ $('#editor').addEventListener('change',async e=>{
     if(oldId&&!videoIsReferenced(oldId)){deleteVideo(oldId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldId).catch(()=>{});}
   }catch{toast('Não foi possível salvar o vídeo. Verifique o espaço disponível no navegador.');e.target.value='';}
 });
-$('#planList').addEventListener('click',e=>{const month=e.target.closest('[data-archive-month]');if(month&&store.view!=='draft'){navigateArchive('month',month.dataset.archiveMonth);closeSidebar();return;}const button=e.target.closest('[data-plan]');if(!button)return;store.activeId=button.dataset.plan;persist();render();closeSidebar();});
-$('#draftTab').onclick=()=>setView('draft');$('#scheduledTab').onclick=()=>setView('scheduled');$('#pastTab').onclick=()=>setView('past');
+$('#planList').addEventListener('click',e=>{const today=e.target.closest('[data-today-plan]');if(today){openTodayPlan(today.dataset.todayPlan);return;}const month=e.target.closest('[data-archive-month]');if(month&&store.view!=='draft'){navigateArchive('month',month.dataset.archiveMonth);closeSidebar();return;}const button=e.target.closest('[data-plan]');if(!button)return;store.activeId=button.dataset.plan;persist();render();closeSidebar();});
+$('#todayTab').onclick=()=>setView('today');$('#todayShortcut').onclick=()=>setView('today');$('#draftTab').onclick=()=>setView('draft');$('#scheduledTab').onclick=()=>setView('scheduled');$('#pastTab').onclick=()=>setView('past');
 $('#newPlan').onclick=()=>{const p=template(true);store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();closeSidebar();};
-$('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.scheduledAt=null;p.completedAt=null;p.liveRun=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();toast('Cópia aberta para montagem.');};
-$('#deletePlan').onclick=()=>{const isRegistered=store.view!=='draft',p=current();if(!p||!confirm(`Excluir ${isRegistered?'este registro':'este rascunho'}?`))return;const oldVideoId=p.videoFile?.id;if(isRegistered){store.past=store.past.filter(x=>x.id!==p.id);store.pastId=null;store.scheduledId=null;syncPastSelection();syncScheduledSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;}persist();render();if(cloudReady)budoCloud.deleteLesson(p.id).catch(()=>toast('Exclusão salva neste aparelho; sincronização pendente.'));if(oldVideoId&&!videoIsReferenced(oldVideoId)){deleteVideo(oldVideoId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldVideoId).catch(()=>{});}toast(isRegistered?'Registro excluído.':'Rascunho excluído.');};
+$('#duplicatePlan').onclick=()=>{const p=structuredClone(current());p.id=uid();p.recordedAt=null;p.scheduledAt=null;p.completedAt=null;p.className=`${p.className||'Aula'} (cópia)`;p.updatedAt=Date.now();store.drafts.push(p);store.activeId=p.id;store.view='draft';persist(true);render();toast('Cópia aberta para montagem.');};
+$('#deletePlan').onclick=()=>{const isRegistered=store.view!=='draft',p=current();if(!p||!confirm(`Excluir ${isRegistered?'este registro':'este rascunho'}?`))return;const oldVideoId=p.videoFile?.id;if(isRegistered){store.past=store.past.filter(x=>x.id!==p.id);delete store.reflections[p.id];store.pastId=null;store.scheduledId=null;syncPastSelection();syncScheduledSelection();}else{store.drafts=store.drafts.filter(x=>x.id!==p.id);if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;}persist();render();if(cloudReady)budoCloud.deleteLesson(p.id).catch(()=>toast('Exclusão salva neste aparelho; sincronização pendente.'));if(oldVideoId&&!videoIsReferenced(oldVideoId)){deleteVideo(oldVideoId).catch(()=>{});if(cloudReady)budoCloud.deleteVideo(oldVideoId).catch(()=>{});}toast(isRegistered?'Registro excluído.':'Rascunho excluído.');};
 $('#printButton').onclick=()=>{if(!current())return;window.print();};
-$('#exportBackup').onclick=async()=>{try{toast('Preparando backup com os vídeos...');const ids=[...new Set([...store.drafts,...store.past].map(p=>p.videoFile?.id).filter(Boolean))],videoFiles=[];for(const id of ids){let blob=await getVideo(id);if(!blob&&cloudReady)blob=await budoCloud.downloadVideo(id);if(!blob)throw Error('Vídeo indisponível');videoFiles.push({id,dataUrl:await fileAsDataUrl(blob)});}const blob=new Blob([JSON.stringify({format:'budo-plans',version:3,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past,videoFiles})],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado com os vídeos.');}catch{toast('Não foi possível exportar o backup. Confira os vídeos anexados.');}};
+$('#exportBackup').onclick=async()=>{try{toast('Preparando backup com os vídeos...');const ids=[...new Set([...store.drafts,...store.past].map(p=>p.videoFile?.id).filter(Boolean))],videoFiles=[];for(const id of ids){let blob=await getVideo(id);if(!blob&&cloudReady)blob=await budoCloud.downloadVideo(id);if(!blob)throw Error('Vídeo indisponível');videoFiles.push({id,dataUrl:await fileAsDataUrl(blob)});}const blob=new Blob([JSON.stringify({format:'budo-plans',version:4,exportedAt:new Date().toISOString(),drafts:store.drafts,past:store.past,reflections:store.reflections,videoFiles})],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`budo-aulas-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup exportado com os vídeos.');}catch{toast('Não foi possível exportar o backup. Confira os vídeos anexados.');}};
 $('#importBackup').onclick=()=>$('#backupFile').click();
-$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[])||!Array.isArray(data.videoFiles||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;for(const item of data.videoFiles||[]){if(!item.id||typeof item.dataUrl!=='string'||!item.dataUrl.startsWith('data:video/'))throw Error('Vídeo inválido');const blob=await (await fetch(item.dataUrl)).blob();await putVideo(item.id,blob);if(cloudReady&&blob.size<=50*1024*1024)await budoCloud.uploadVideo(item.id,blob);}store={drafts:drafts.map(p=>normalizePlan(p,true)),past:(data.past||[]).map(p=>normalizePlan(p,false)),view:'draft',activeId:null,scheduledId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;syncScheduledSelection();syncPastSelection();persist();render();if(cloudReady)for(const plan of [...store.drafts,...store.past])queueCloudSave(plan);toast('Backup importado com os vídeos.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
+$('#backupFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(data.format!=='budo-plans')throw Error('Formato inválido');const drafts=Array.isArray(data.drafts)?data.drafts:Array.isArray(data.plans)?data.plans:null;if(!drafts||!Array.isArray(data.past||[])||!Array.isArray(data.videoFiles||[]))throw Error('Formato inválido');if(!confirm('Importar backup? Isso substituirá seus rascunhos e aulas passadas neste navegador.'))return;for(const item of data.videoFiles||[]){if(!item.id||typeof item.dataUrl!=='string'||!item.dataUrl.startsWith('data:video/'))throw Error('Vídeo inválido');const blob=await (await fetch(item.dataUrl)).blob();await putVideo(item.id,blob);if(cloudReady&&blob.size<=50*1024*1024)await budoCloud.uploadVideo(item.id,blob);}store={drafts:drafts.map(p=>normalizePlan(p,true)),past:(data.past||[]).map(p=>normalizePlan(p,false)),reflections:data.reflections&&typeof data.reflections==='object'?data.reflections:{},view:'draft',activeId:null,scheduledId:null,pastId:null,pastMonth:null};if(!store.drafts.length)store.drafts=[emptyDraft()];store.activeId=store.drafts[0].id;syncScheduledSelection();syncPastSelection();persist();render();if(cloudReady){for(const plan of [...store.drafts,...store.past])queueCloudSave(plan);for(const id of Object.keys(store.reflections))queueReflectionSave(id);}toast('Backup importado com os vídeos.');}catch{toast('Não foi possível importar este backup.');}finally{e.target.value='';}};
 function closeSidebar(){$('#sidebar').classList.remove('open');$('#scrim').classList.remove('open');}
 $('#libraryToggle').onclick=()=>{$('#sidebar').classList.add('open');$('#scrim').classList.add('open');};$('#closeSidebar').onclick=closeSidebar;$('#scrim').onclick=closeSidebar;
 $('#loginForm').onsubmit=async e=>{
@@ -405,9 +452,9 @@ $('#loginForm').onsubmit=async e=>{
   catch{cloudReady=false;$('#authGate').hidden=false;$('#loginError').textContent='Usuário ou senha inválidos, ou acesso ainda não liberado.';}
   finally{button.disabled=false;button.textContent='Entrar';}
 };
-$('#logoutButton').onclick=async()=>{if(typeof disableLiveAlerts==='function')await disableLiveAlerts();cloudReady=false;await budoCloud.signOut();$('#authGate').hidden=false;$('#loggedInUser').textContent='';$('#loginUsername').value='';$('#loginPassword').value='';};
+$('#logoutButton').onclick=async()=>{cloudReady=false;await budoCloud.signOut();$('#authGate').hidden=false;$('#loggedInUser').textContent='';$('#loginUsername').value='';$('#loginPassword').value='';};
 function reconcileSchedule(){
-  const due=store.past.filter(p=>p.scheduledAt&&!p.completedAt&&isDue(p)&&!['running','paused'].includes(p.liveRun?.status));
+  const due=store.past.filter(p=>p.scheduledAt&&!p.completedAt&&isDue(p));
   if(!due.length)return;
   due.forEach(p=>{p.completedAt=Date.now();p.updatedAt=Date.now();queueCloudSave(p);});
   const opened=due.find(p=>p.id===archiveNav.scheduled.planId);
